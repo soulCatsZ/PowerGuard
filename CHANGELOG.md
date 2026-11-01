@@ -19,6 +19,10 @@
 
 ### 修复
 
+- `--process` 现在接受完整路径：把 `game.exe` 拖到 `PowerGuard.bat` 上时传入的是
+  绝对路径，旧版会拿整条路径去匹配进程名，永远命中不了，控制因此完全不生效。
+- 本地 Web 控制台增加两道校验：`Host` 必须是回环地址（防 DNS rebinding），
+  POST 必须是 `application/json`（挡住跨站表单与 `no-cors fetch` 改参数）。
 - GPU 锁频改为“上限”语义：下限取硬件 P0 最低频率，低负载时仍可降频省电；
   驱动拒绝带下限的写法时自动退回 `min=max`。
 - 电池充放电方向改用电池类驱动 `IOCTL_BATTERY_QUERY_STATUS`，
@@ -28,8 +32,9 @@
 
 ### 变更
 
-- `PowerGuard.bat` 不再默认监控 `Starfield.exe`；无参数时打印用法，
-  传入 `--diagnose` 等选项时直接透传。
+- `PowerGuard.bat` 不再默认监控 `Starfield.exe`：双击启动后提示输入游戏进程名
+  （回车则只记录功率、不做控制），仍支持传入游戏名、拖拽 exe 和
+  `--diagnose` 等选项透传。文件保持纯 ASCII + CRLF，避免代码页吞掉换行。
 - 增加 `LICENSE`（MIT）、`CONTRIBUTING.md`、发布打包说明。
 
 ## [0.3.0] 及更早

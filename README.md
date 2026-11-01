@@ -78,6 +78,10 @@ PowerGuard 的判据只有一句话：
 不想装编译器就直接下 [Releases](https://github.com/soulCatsZ/PowerGuard/releases)
 里的 `PowerGuard-<版本>-win64.zip`，解压即用。
 
+> **首次运行被 SmartScreen 拦下是正常的**：exe 没有代码签名，而它又要申请管理员权限
+> 去改显卡频率。选"更多信息 → 仍要运行"即可。源码和 CI 构建流程都在仓库里，
+> 不放心可以自己 `./build.sh` 编译。
+
 ```bash
 ./build.sh                                  # 自动收集 src/**/*.cpp，产物是单文件 exe
 ./bin/PowerGuard.exe --diagnose             # 换机器先探测（只读，不需要管理员）

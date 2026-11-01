@@ -1,0 +1,15 @@
+# 仓库内统一按 LF 存储
+* text=auto
+
+# 批处理必须检出为 CRLF：cmd 按 OEM 代码页逐行解析，
+# 非 ASCII 内容配 LF 时会被吞掉换行，导致整段脚本错乱
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.exe binary
+*.zip binary
+*.ico binary
+*.png binary
+*.jpg binary

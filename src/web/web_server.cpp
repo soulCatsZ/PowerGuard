@@ -1,6 +1,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -53,7 +54,11 @@ std::string num2(double v) {
 }
 
 std::string httpResponse(int code, const char* type, const std::string& body) {
-    const char* reason = code == 200 ? "OK" : code == 404 ? "Not Found" : "Bad Request";
+    const char* reason = code == 200 ? "OK"
+                       : code == 403 ? "Forbidden"
+                       : code == 404 ? "Not Found"
+                       : code == 415 ? "Unsupported Media Type"
+                                     : "Bad Request";
     std::string r;
     r += "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\n";
     r += std::string("Content-Type: ") + type + "\r\n";
@@ -65,6 +70,56 @@ std::string httpResponse(int code, const char* type, const std::string& body) {
 }
 
 std::string okJson() { return "{\"ok\":true}"; }
+
+// 取请求头里某个字段的值 (名字大小写不敏感, 只认行首, 去掉首尾空白)
+std::string headerValue(const std::string& head, const std::string& name) {
+    std::string key = lowerCopy(name) + ":";
+    std::string lower = lowerCopy(head);
+
+    size_t at = std::string::npos;
+    if (lower.compare(0, key.size(), key) == 0) {
+        at = 0;                                   // 极少见: 头出现在首行
+    } else {
+        size_t p = lower.find("\n" + key);
+        if (p != std::string::npos) at = p + 1;
+    }
+    if (at == std::string::npos) return {};
+
+    size_t vs = at + key.size();
+    size_t ve = head.find("\r\n", vs);
+    if (ve == std::string::npos) ve = head.size();
+
+    std::string v = head.substr(vs, ve - vs);
+    size_t b = v.find_first_not_of(" \t");
+    size_t e = v.find_last_not_of(" \t");
+    return b == std::string::npos ? std::string() : v.substr(b, e - b + 1);
+}
+
+// Host 必须是本机回环地址。绑定 127.0.0.1 只挡住外部设备,
+// 挡不住 DNS rebinding —— 恶意域名解析到 127.0.0.1 后,
+// 浏览器发来的 Host 仍是那个域名, 这里把它挡掉。
+bool isLoopbackHost(const std::string& host) {
+    if (host.empty()) return false;
+    std::string h = lowerCopy(host);
+
+    if (h == "[::1]" || h == "::1") return true;
+
+    size_t colon = h.rfind(':');
+    if (colon != std::string::npos) {
+        std::string port = h.substr(colon + 1);
+        bool numeric = !port.empty() &&
+                       std::all_of(port.begin(), port.end(),
+                                   [](unsigned char c) { return std::isdigit(c) != 0; });
+        if (numeric) h.resize(colon);
+    }
+    return h == "127.0.0.1" || h == "localhost";
+}
+
+// POST 只收 application/json: 跨站表单 / no-cors fetch 只能发
+// text/plain 这类"简单请求", 于是不会触发写操作。
+bool isJsonContentType(const std::string& type) {
+    return lowerCopy(type).compare(0, 16, "application/json") == 0;
+}
 
 void sendAll(SOCKET c, const std::string& data) {
     size_t off = 0;
@@ -941,6 +996,18 @@ void WebServer::handleClient(SOCKET c) {
         body.append(buf, (size_t)n);
     }
     if (body.size() > contentLen) body.resize(contentLen);
+
+    // 只接受发往回环地址的请求, 防止 DNS rebinding 借本机地址改参数
+    if (!isLoopbackHost(headerValue(head, "host"))) {
+        sendAll(c, httpResponse(403, "text/plain; charset=utf-8", "forbidden host"));
+        return;
+    }
+    // 写操作必须是 JSON, 挡住跨站表单和 no-cors fetch 这类"简单请求"
+    if (method == "POST" && !isJsonContentType(headerValue(head, "content-type"))) {
+        sendAll(c, httpResponse(415, "text/plain; charset=utf-8",
+                                "expected application/json"));
+        return;
+    }
 
     std::string resp;
     route(method, path, body, resp);
