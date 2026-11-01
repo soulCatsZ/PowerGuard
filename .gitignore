@@ -1,0 +1,20 @@
+# 编译产物
+bin/*.exe
+bin/logs/
+*.exe
+*.o
+*.obj
+
+# 运行日志与 CSV（含进程名 / PID，不上传）
+logs/
+*.log
+*.csv
+*.csv.legacy
+*.csv.legacy*
+
+# 编辑器 / 调试 / 系统文件
+.gdb_history
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
