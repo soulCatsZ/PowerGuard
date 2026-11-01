@@ -21,6 +21,16 @@ if not exist "%EXE%" (
     exit /b 1
 )
 
+rem --- Stage 2: re-entered elevated. -------------------------------------
+rem The target name arrives through a temp file, not as an argument:
+rem Start-Process -Verb RunAs cannot pass a quoted argument to a .bat
+rem (the launch silently does nothing), and an unquoted one is split at
+rem spaces, so "Some Game.exe" would arrive as just "Some".
+rem The read happens at the :from_elevation label below, not inside an
+rem if(...) block: %GAME% in a block is expanded at parse time, before
+rem set /p has read anything.
+if /i "%~1"=="--elevated" goto from_elevation
+
 rem Options are passed straight to PowerGuard.exe (no UAC needed for --diagnose).
 set "ARG1=%~1"
 if "%ARG1:~0,2%"=="--" (
@@ -33,7 +43,16 @@ if "%ARG1:~0,2%"=="--" (
 rem Drag-and-drop hands us a full path; keep the file name only.
 set "GAME=%~nx1"
 if not "%GAME%"=="" goto normalize
+goto prompt
 
+:from_elevation
+set "CAME_ELEVATED=1"
+set "GAME="
+if exist "%TEMP%\PowerGuard_target.txt" set /p GAME=<"%TEMP%\PowerGuard_target.txt"
+del "%TEMP%\PowerGuard_target.txt" >nul 2>&1
+if not "%GAME%"=="" goto normalize
+
+:prompt
 echo ============================================================
 echo  PowerGuard  USB-C 100W profile
 echo ============================================================
@@ -53,12 +72,14 @@ if /i not "%GAME:~-4%"==".exe" set "GAME=%GAME%.exe"
 
 fltmc >nul 2>&1
 if not errorlevel 1 goto run
+if defined CAME_ELEVATED goto run
 
+rem Hand the target over through a temp file, then elevate without arguments.
+> "%TEMP%\PowerGuard_target.txt" echo %GAME%
 echo Requesting administrator privileges...
-rem [char]34 stands for a double quote: keeps names like "The Witcher 3.exe"
-rem in a single argument when relaunching elevated.
-powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList ([char]34 + '%GAME%' + [char]34) -Verb RunAs"
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs"
 if errorlevel 1 (
+    del "%TEMP%\PowerGuard_target.txt" >nul 2>&1
     echo [ERROR] Elevation was cancelled or denied.
     echo         Right-click PowerGuard.bat and pick "Run as administrator".
     pause
