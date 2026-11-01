@@ -54,6 +54,7 @@ private:
     void emergencyRestore();                              // 关机/关窗时同步恢复
     void setProfileForGame(const std::string& game);      // 应用 profiles.ini
     void resetProfileToBase();                            // 回到命令行/profile 默认值
+    void resolvePercentClocks(ControlProfile& p);         // 百分比 -> 实际 MHz
 
     GpuPower           gpu_;
     CpuPower           cpu_;
@@ -103,6 +104,9 @@ private:
     bool               forceCsv_ = false;
     bool               restoreOnly_ = false;   // --restore
     bool               restoreIfStale_ = false;// --restore-if-stale
+    bool               diagnose_ = false;      // --diagnose
+    bool               diagnoseValidate_ = false; // --diagnose-validate
+    bool               percentWarned_ = false; // 最大频率读不到只警告一次
     bool               shutdownRequested_ = false; // 控制台关机/注销事件
     std::recursive_mutex controlMu_;        // 控制写入串行化(CTRL 回调 vs 主循环)
 

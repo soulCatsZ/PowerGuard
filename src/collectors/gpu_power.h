@@ -5,6 +5,7 @@
 #pragma once
 
 #include <windows.h>
+#include <string>
 
 namespace pg {
 
@@ -21,6 +22,8 @@ public:
     bool open();       // 加载 nvml.dll 并初始化; 失败时已写入详细日志
     double read();     // 返回瓦特, 失败返回 -1 并写日志(10 秒节流)
     void shutdown();   // 关闭 NVML 并释放 DLL, 可重复调用
+
+    std::string name();     // GPU 型号; 读不到返回空串 (--diagnose 用)
 
     // ---- 功耗上限控制 (NVML 的 limit 单位是毫瓦, 这里统一用瓦) ----
     // 驱动是否导出了设置函数; 部分笔记本驱动导出但拒绝写入
@@ -47,6 +50,13 @@ public:
     int  currentGpuClockMhz();             // 当前核心频率, 失败 -1
     int  maxGpuClockMhz();                 // 允许的最大核心频率, 失败 -1
 
+    // ---- 能力探测 (--diagnose) ----
+    // 返回 NVML 原始错误码: 0 = 成功, 正数 = NVML 错误, -1 = 无 API, -2 = 未提权。
+    // 探测不写日志, 由调用方决定怎么展示。
+    int probePowerLimit(unsigned watts);
+    int probeClockLock(unsigned mhz);
+    int probeClockReset();
+
 private:
     void reportFail(const char* what, long code);
     void reportLimitFail(const char* what, long code);
@@ -66,6 +76,7 @@ private:
     int  (*resetLockedClocks_)(nvmlDevice_t) = nullptr;
     int  (*getClockInfo_)(nvmlDevice_t, int, unsigned*) = nullptr;
     int  (*getMaxClockInfo_)(nvmlDevice_t, int, unsigned*) = nullptr;
+    int  (*getName_)(nvmlDevice_t, char*, unsigned) = nullptr;
 
     nvmlDevice_t dev_ = nullptr;
     bool elevated_ = false;      // 是否以管理员身份运行 (设置上限的前提)

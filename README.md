@@ -160,6 +160,37 @@ prefer = cpu        # 这个游戏 CPU 才是有效杠杆
 
 安全设计：只绑定回环地址，外部设备访问不到；接口仅本机可用。
 
+### 7. 换机器：先探测，再自动选杠杆
+
+不同机器的 GPU 能力差别很大：有的功耗上限可写，有的被 EC 托管，有的连锁频都不给。
+PowerGuard 不再假设"所有机器都能锁 1400MHz"，而是先探测再决定：
+
+```bash
+PowerGuard.exe --diagnose            # 只读，不需要管理员
+PowerGuard.exe --diagnose-validate   # 额外实测功耗上限/锁频能不能写（需管理员）
+```
+
+探测内容：
+
+- **GPU**：型号、当前/最大核心频率、当前/默认/生效功耗上限、允许范围、
+  功耗上限是否可写、锁频是否可用（未提权时会明确标"需要管理员"，不会误判成"不可用"）；
+- **CPU**：型号、物理核心/线程、活动电源方案、AC/DC 最大处理器状态、写权限；
+- **电池**：方向信号来自电池类驱动还是兜底 API、充放电标志是否冲突、功率、电量、
+  设计/满充容量、健康度；
+- **结论**：直接给出杠杆顺序和一段可粘贴进 `profiles.ini` 的起点参数。
+
+配套的**百分比时基**让参数可以跨机器复用：
+
+```ini
+[default]
+gpu_clock_pct = 50        # 最大核心频率的 50%
+min_gpu_clock_pct = 30
+auto_clock_pct = 45       # 功耗上限不可写时, 自动锁频的起始值
+```
+
+程序用 NVML 报告的**最大核心频率**换算成实际 MHz（10MHz 对齐），
+换一张频率不同的显卡不用重调数值；百分比只要写了，就优先于对应的绝对 MHz 值。
+
 ---
 
 ## 五、快速开始
@@ -172,6 +203,15 @@ prefer = cpu        # 这个游戏 CPU 才是有效杠杆
 
 （MinGW g++，自动收集 `src/**/*.cpp`，链接
 `-lpdh -lpowrprof -lsetupapi -luuid -lws2_32 -static`。）
+
+### 先探测一次（换机器必做）
+
+```bash
+./bin/PowerGuard.exe --diagnose
+```
+
+输出会告诉你这台机器 GPU 该用功耗上限还是锁频、电池信号可不可信，
+并给出一段可以直接粘贴的 `profiles.ini` 起点。
 
 ### 一键启动
 
@@ -195,6 +235,8 @@ PowerGuard.bat Cyberpunk2077.exe
 ./bin/PowerGuard.exe --profile usbc --dry-run --apply-always # 只看策略，不改系统
 ./bin/PowerGuard.exe --restore                               # 恢复原始设置
 ./bin/PowerGuard.exe --restore-if-stale                      # 只清理残留（登录任务用）
+./bin/PowerGuard.exe --diagnose                              # 能力探测（只读）
+./bin/PowerGuard.exe --diagnose-validate                     # 探测 + 写权限实测（管理员）
 ```
 
 输入 `quit` 回车退出；Ctrl+C / 关窗口同样会恢复。
@@ -230,6 +272,9 @@ PowerGuard.bat Cyberpunk2077.exe
 | `--prefer-cpu` | 关 | 降档先动 CPU、再动 GPU（默认 GPU 优先） |
 | `--gpu-clock MHZ` | 0 | 显式锁定 GPU 核心频率（功耗上限写不进去时用） |
 | `--min-gpu-clock MHZ` | 800 | 锁频降档下限 |
+| `--gpu-clock-pct PCT` | 0 | 按最大核心频率百分比锁频（换机器不用改数值） |
+| `--min-gpu-clock-pct PCT` | 0 | 锁频下限的百分比 |
+| `--auto-clock-pct PCT` | 0 | 自动锁频起始值的百分比 |
 | `--clock-step MHZ` | 100 | 锁频每次升降幅度 |
 | `--no-gpu-clock` | 关 | 关闭"功耗上限失败后自动锁频" |
 | `--battery-threshold W` | 2.0 | 电池放电超过该值视为供电缺口 |
@@ -247,6 +292,8 @@ PowerGuard.bat Cyberpunk2077.exe
 | `--web` / `--web-port N` | 关 / 8080 | 启动本地 Web 控制台 |
 | `--restore` | — | 恢复上次保存的原始设置后退出 |
 | `--restore-if-stale` | — | 仅当状态文件属于已退出进程时恢复 |
+| `--diagnose` | — | 只读能力探测（GPU 杠杆 / CPU / 电池信号 / 建议参数） |
+| `--diagnose-validate` | — | 同上，并实测功耗上限与锁频是否可写（管理员） |
 
 ---
 
@@ -274,8 +321,14 @@ prefer = gpu
 
 可用键（与命令行同名）：`gpu_limit`、`min_gpu`、`max_gpu`、`cpu_max`、`cpu_min`、
 `cpu_step`、`cpu_power_step`、`prefer`、`gpu_clock`、`min_gpu_clock`、`clock_step`、
-`auto_clock`、`gpu_clock_auto`、`battery_threshold`、`deficit_energy`、`deficit_window`、
+`auto_clock`、`gpu_clock_auto`、`gpu_clock_pct`、`min_gpu_clock_pct`、`auto_clock_pct`、
+`battery_threshold`、`deficit_energy`、`deficit_window`、
 `step_cooldown`、`step`、`hold_down`、`hold_up`，以及 `no_gpu_clock` / `no_cpu_step`。
+
+**跨机器推荐用百分比**：`gpu_clock_pct` / `min_gpu_clock_pct` / `auto_clock_pct`
+按 NVML 报告的 GPU 最大核心频率换算成 MHz（10MHz 对齐）。同一个百分比在
+RTX 5060、4060 等不同频率的卡上都能得到接近的比例，不用每台机器重调。
+百分比只要大于 0 就优先于对应的绝对 MHz 键。
 
 要点：
 
@@ -294,7 +347,10 @@ prefer = gpu
 - **锁频同样需要管理员**；非管理员启动会明确提示并退化为只做 CPU 控制。
 - **CPU 上限**：改当前电源计划的"最大处理器状态"（AC），普通用户即可，退出时恢复。
   它限制的是频率上限，不是电压/功耗墙。
-- 只支持 **NVIDIA GPU**（NVML）。
+- 只支持 **NVIDIA GPU**（NVML）。其他显卡请先跑 `--diagnose`，目前会明确显示"GPU 不可用"，
+  而不是假装支持。
+- 不同机器的 GPU 能力不同：先用 `--diagnose` / `--diagnose-validate` 确认功耗上限、锁频
+  到底哪个可写，再用百分比参数写 `profiles.ini`。
 - 厂商控制中心可能反复改写上限，程序每 10 秒回写一次。
 - 限功耗不是降压超频，不改硬件，重启后设置自然消失。
 - 场景变化是**被动响应**的，不做帧级预测；`profiles.ini` 是起点，不会自动写回学习结果。
@@ -361,6 +417,8 @@ PowerGuard/
     │   ├── gpu_power.*             # NVIDIA NVML
     │   ├── cpu_power.*             # PDH RAPL
     │   └── battery_power.*         # 电池类驱动 IOCTL + CallNtPowerInformation
+    ├── diag/
+    │   └── diagnose.*              # --diagnose 能力探测
     ├── control/
     │   ├── cpu_limit.*             # 最大处理器状态
     │   ├── state_file.*            # 原始值备份与恢复
@@ -379,8 +437,10 @@ PowerGuard/
 
 ## 十一、验证建议
 
-1. `--dry-run --apply-always`：确认参数解析、原始值读取正常，日志里能看到它"想做什么"。
-2. 普通权限 `--apply-always`：CPU 设为 99%，退出后恢复 100%。
-3. 管理员权限跑同一条：确认 GPU 走的是上限还是锁频，用 `nvidia-smi -q -d POWER` 对照。
-4. 游戏内看 CSV：`battery_w` 应逐步降到阈值附近，`action` 列出现 `step_down` / `step_up`。
-5. 任务管理器结束进程后重启：确认状态文件被识别、残留限制被恢复。
+1. `--diagnose`：先确认这台机器用哪个 GPU 杠杆、电池信号可不可信。
+   需要确认写权限时，以管理员运行 `--diagnose-validate`。
+2. `--dry-run --apply-always`：确认参数解析、原始值读取正常，日志里能看到它"想做什么"。
+3. 普通权限 `--apply-always`：CPU 设为 99%，退出后恢复 100%。
+4. 管理员权限跑同一条：确认 GPU 走的是上限还是锁频，用 `nvidia-smi -q -d POWER` 对照。
+5. 游戏内看 CSV：`battery_w` 应逐步降到阈值附近，`action` 列出现 `step_down` / `step_up`。
+6. 任务管理器结束进程后重启：确认状态文件被识别、残留限制被恢复。

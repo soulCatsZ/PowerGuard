@@ -20,6 +20,14 @@
 
 namespace pg {
 
+// 设计容量 / 满充容量 / 循环次数 (来自电池类驱动, --diagnose 用)
+struct BatteryDesignInfo {
+    bool   valid = false;
+    double designWh = -1.0;
+    double fullWh = -1.0;
+    int    cycles = -1;
+};
+
 struct BatterySample {
     bool   valid = false;
     bool   acOnline = false;
@@ -45,6 +53,12 @@ public:
 
     // 读取一次; 失败返回 valid=false 的结构（10 秒节流写日志）
     BatterySample read();
+
+    // 方向信号是否来自电池类驱动 (false = 回退到 CallNtPowerInformation)
+    bool usesDeviceDriver() const { return dev_ != INVALID_HANDLE_VALUE; }
+
+    // 读取设计容量/满充容量/循环次数; 需要电池类驱动
+    bool queryDesign(BatteryDesignInfo& out);
 
 private:
     void reportFail(long status);

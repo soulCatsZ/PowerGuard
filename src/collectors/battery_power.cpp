@@ -118,6 +118,30 @@ bool BatteryPower::readDevice(BatterySample& s) {
     return true;
 }
 
+bool BatteryPower::queryDesign(BatteryDesignInfo& out) {
+    out = BatteryDesignInfo{};
+    if (dev_ == INVALID_HANDLE_VALUE && !openDevice()) return false;
+
+    BATTERY_QUERY_INFORMATION q{};
+    q.BatteryTag = tag_;
+    q.InformationLevel = BatteryInformation;
+
+    BATTERY_INFORMATION bi{};
+    DWORD bytes = 0;
+    if (!DeviceIoControl(dev_, IOCTL_BATTERY_QUERY_INFORMATION, &q, sizeof(q),
+                         &bi, sizeof(bi), &bytes, nullptr)) {
+        return false;
+    }
+
+    out.valid = true;
+    if (bi.DesignedCapacity != BATTERY_UNKNOWN_CAPACITY)
+        out.designWh = bi.DesignedCapacity / 1000.0;
+    if (bi.FullChargedCapacity != BATTERY_UNKNOWN_CAPACITY)
+        out.fullWh = bi.FullChargedCapacity / 1000.0;
+    out.cycles = (int)bi.CycleCount;
+    return true;
+}
+
 bool BatteryPower::open() {
     closeDevice();
 

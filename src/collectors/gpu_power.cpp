@@ -68,6 +68,7 @@ bool GpuPower::open() {
     resetLockedClocks_  = (decltype(resetLockedClocks_)) GetProcAddress(dll_, "nvmlDeviceResetGpuLockedClocks");
     getClockInfo_       = (decltype(getClockInfo_))      GetProcAddress(dll_, "nvmlDeviceGetClockInfo");
     getMaxClockInfo_    = (decltype(getMaxClockInfo_))   GetProcAddress(dll_, "nvmlDeviceGetMaxClockInfo");
+    getName_            = (decltype(getName_))           GetProcAddress(dll_, "nvmlDeviceGetName");
 
     elevated_ = processElevated();
 
@@ -97,6 +98,13 @@ bool GpuPower::open() {
         LOG_WARN("gpu", "当前不是管理员权限, 无法设置 GPU 功耗上限 "
                         "(NVML 会返回 4); 以管理员身份运行才能限制 GPU");
     return true;
+}
+
+std::string GpuPower::name() {
+    if (!dev_ || !getName_) return {};
+    char buf[128] = {0};
+    if (getName_(dev_, buf, (unsigned)sizeof buf) != 0) return {};
+    return buf;
 }
 
 double GpuPower::read() {
@@ -266,6 +274,27 @@ int GpuPower::maxGpuClockMhz() {
     return (int)mhz;
 }
 
+// ---- 能力探测 ----
+// 只做"写入相同值"的无副作用探测, 返回原始错误码供 --diagnose 展示。
+
+int GpuPower::probePowerLimit(unsigned watts) {
+    if (!dev_ || !setLimit_) return -1;
+    if (!elevated_) return -2;
+    return setLimit_(dev_, watts * 1000u);
+}
+
+int GpuPower::probeClockLock(unsigned mhz) {
+    if (!dev_ || !setLockedClocks_) return -1;
+    if (!elevated_) return -2;
+    return setLockedClocks_(dev_, mhz, mhz);
+}
+
+int GpuPower::probeClockReset() {
+    if (!dev_ || !resetLockedClocks_) return -1;
+    if (!elevated_) return -2;
+    return resetLockedClocks_(dev_);
+}
+
 bool GpuPower::restorePowerLimit() {
     if (originalLimitW_ < 0) {
         LOG_WARN("gpu", "没有可恢复的原始 GPU 功耗上限");
@@ -302,6 +331,7 @@ void GpuPower::shutdown() {
     resetLockedClocks_ = nullptr;
     getClockInfo_ = nullptr;
     getMaxClockInfo_ = nullptr;
+    getName_ = nullptr;
     dev_ = nullptr;
     elevated_ = false;
     originalLimitW_ = -1;

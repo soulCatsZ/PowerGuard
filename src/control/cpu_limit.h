@@ -13,6 +13,9 @@ namespace pg {
 // 只读取当前电源方案的 AC 最大处理器状态, 不保存/不写日志; 失败返回 -1
 int readCpuMaxState();
 
+// 同上, 读取电池供电 (DC) 的最大处理器状态; --diagnose 用
+int readCpuMaxStateDC();
+
 class CpuLimit {
 public:
     CpuLimit() = default;

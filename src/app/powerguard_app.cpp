@@ -11,6 +11,7 @@
 
 #include "control/game_profile.h"
 #include "control/state_file.h"
+#include "diag/diagnose.h"
 
 namespace pg {
 namespace {
@@ -50,6 +51,9 @@ void printUsage() {
         "  --prefer-cpu            降档先动 CPU, 再动 GPU (默认反过来)\n"
         "  --gpu-clock <MHz>       锁定 GPU 核心频率 (功耗上限不可用时的替代)\n"
         "  --min-gpu-clock <MHz>   锁频降档下限 (默认 800)\n"
+        "  --gpu-clock-pct <%%>     按最大核心频率的百分比锁频 (换机器不用改数值)\n"
+        "  --min-gpu-clock-pct <%%> 锁频下限的百分比\n"
+        "  --auto-clock-pct <%%>    自动锁频起始值的百分比\n"
         "  --clock-step <MHz>      每次升降档幅度 (默认 100)\n"
         "  --no-gpu-clock          关闭\"功耗上限失败后自动锁频\"\n"
         "  --battery-threshold <W> 电池放电阈值 (默认 2.0)\n"
@@ -66,6 +70,8 @@ void printUsage() {
         "  --dry-run               只记录动作, 不修改系统\n"
         "  --restore               恢复上次异常退出保存的原始值\n"
         "  --restore-if-stale      仅当状态文件属于已退出的进程时恢复(登录任务用)\n"
+        "  --diagnose              探测本机能力: GPU 杠杆/CPU/电池信号 (只读)\n"
+        "  --diagnose-validate     同上, 并实测功耗上限/锁频是否可写 (需管理员)\n"
         "  --web                   启动本机 Web 控制台 (http://127.0.0.1:8080)\n"
         "  --web-port <端口>       指定 Web 端口\n"
         "  --help                  显示本帮助\n"
@@ -121,6 +127,11 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             restoreOnly_ = true;
         } else if (a == "--restore-if-stale") {
             restoreIfStale_ = true;
+        } else if (a == "--diagnose") {
+            diagnose_ = true;
+        } else if (a == "--diagnose-validate") {
+            diagnose_ = true;
+            diagnoseValidate_ = true;
         } else if (a == "--apply-always") {
             profile_.applyAlways = true;
         } else if (a == "--web") {
@@ -162,6 +173,12 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             profile_.gpuClockMhz = parseInt(v, profile_.gpuClockMhz);
         } else if (matchOpt(i, a, "min-gpu-clock", v)) {
             profile_.minGpuClockMhz = parseInt(v, profile_.minGpuClockMhz);
+        } else if (matchOpt(i, a, "gpu-clock-pct", v)) {
+            profile_.gpuClockPct = parseInt(v, profile_.gpuClockPct);
+        } else if (matchOpt(i, a, "min-gpu-clock-pct", v)) {
+            profile_.minGpuClockPct = parseInt(v, profile_.minGpuClockPct);
+        } else if (matchOpt(i, a, "auto-clock-pct", v)) {
+            profile_.autoClockPct = parseInt(v, profile_.autoClockPct);
         } else if (matchOpt(i, a, "clock-step", v)) {
             profile_.clockStepMhz = parseInt(v, profile_.clockStepMhz);
         } else if (a == "--no-gpu-clock") {
@@ -228,6 +245,16 @@ void PowerGuardApp::normalizeProfile(ControlProfile& p) {
         p.autoClockMhz = p.minGpuClockMhz;
     if (p.gpuClockMhz > 0 && p.minGpuClockMhz > p.gpuClockMhz)
         p.minGpuClockMhz = p.gpuClockMhz;
+
+    // 百分比时基: 1-100; 下限不能高于目标
+    if (p.gpuClockPct < 0)     p.gpuClockPct = 0;
+    if (p.gpuClockPct > 100)   p.gpuClockPct = 100;
+    if (p.minGpuClockPct < 0)  p.minGpuClockPct = 0;
+    if (p.minGpuClockPct > 100) p.minGpuClockPct = 100;
+    if (p.autoClockPct < 0)    p.autoClockPct = 0;
+    if (p.autoClockPct > 100)  p.autoClockPct = 100;
+    if (p.gpuClockPct > 0 && p.minGpuClockPct > p.gpuClockPct)
+        p.minGpuClockPct = p.gpuClockPct;
 }
 
 // ============================================================
@@ -321,10 +348,20 @@ void PowerGuardApp::applyConfigChange(const ConfigChange& c) {
         if (c.stepW >= 0)             p.stepW = c.stepW;
         if (c.holdDownSec >= 0)       p.holdDownSec = c.holdDownSec;
         if (c.holdUpSec >= 0)         p.holdUpSec = c.holdUpSec;
-        if (c.gpuClockMhz >= 0)       p.gpuClockMhz = c.gpuClockMhz;
-        if (c.minGpuClockMhz >= 0)    p.minGpuClockMhz = c.minGpuClockMhz;
+        // 网页给的是绝对 MHz 时，清掉对应的百分比，免得重载时被百分比覆盖
+        if (c.gpuClockMhz >= 0) {
+            p.gpuClockMhz = c.gpuClockMhz;
+            p.gpuClockPct = 0;
+        }
+        if (c.minGpuClockMhz >= 0) {
+            p.minGpuClockMhz = c.minGpuClockMhz;
+            p.minGpuClockPct = 0;
+        }
         if (c.clockStepMhz >= 0)      p.clockStepMhz = c.clockStepMhz;
-        if (c.autoClockMhz >= 0)      p.autoClockMhz = c.autoClockMhz;
+        if (c.autoClockMhz >= 0) {
+            p.autoClockMhz = c.autoClockMhz;
+            p.autoClockPct = 0;
+        }
         if (c.dryRun >= 0)            p.dryRun = c.dryRun != 0;
         if (c.applyAlways >= 0)       p.applyAlways = c.applyAlways != 0;
     };
@@ -409,6 +446,9 @@ void PowerGuardApp::publishWebStatus(double c, double g, const BatterySample& ba
 }
 
 int PowerGuardApp::run() {
+    // 能力探测是独立工具: 不碰控制、不占单实例锁、不初始化日志文件
+    if (diagnose_) return runDiagnose(diagnoseValidate_);
+
     Logger::instance().init("logs", Level::Info);
     startTick_ = GetTickCount64();
     LOG_INFO("core", "PowerGuard 启动");
@@ -473,6 +513,12 @@ int PowerGuardApp::run() {
     if (gpu_.open()) LOG_INFO("gpu", "NVML 就绪, GPU 功率可读");
     if (cpu_.open()) LOG_INFO("cpu", "Energy Meter 计数器就绪");
     if (battery_.open()) LOG_INFO("bat", "电池状态可读 (放电功率 / 剩余电量)");
+
+    // 百分比时基要用 GPU 报告的最大频率, NVML 打开之后才能换算。
+    // baseProfile_ 不在这里换算: 每次 setProfileForGame 复制后都会重新算一遍。
+    // 立即生效/无进程监控时 setProfileForGame 紧接着就会做, 这里不必重复。
+    if (profile_.enabled && !(profile_.applyAlways || !monitor_.configured()))
+        resolvePercentClocks(profile_);
 
     // 上次崩溃/被杀留下的限制不要等到游戏启动才清: 开机后系统就可能带着限频。
     if (profile_.enabled && !profile_.dryRun) {
@@ -598,6 +644,50 @@ void PowerGuardApp::resetProfileToBase() {
     activeGameProfile_.clear();
 }
 
+// 百分比 -> 实际 MHz (按 NVML 报告的最大核心频率)。>0 的百分比优先于绝对 MHz。
+void PowerGuardApp::resolvePercentClocks(ControlProfile& p) {
+    if (p.gpuClockPct <= 0 && p.minGpuClockPct <= 0 && p.autoClockPct <= 0) return;
+
+    int maxMhz = gpu_.maxGpuClockMhz();
+    if (maxMhz <= 0) {
+        if (!percentWarned_) {
+            LOG_WARN("gpu", "读不到 GPU 最大核心频率, 百分比锁频无法换算, 沿用绝对 MHz 值");
+            percentWarned_ = true;
+        }
+        return;
+    }
+
+    auto toMhz = [maxMhz](int pct) -> int {
+        long long mhz = (long long)maxMhz * pct / 100;
+        return (int)(mhz / 10 * 10);            // 10MHz 对齐
+    };
+
+    if (p.gpuClockPct > 0) {
+        int mhz = toMhz(p.gpuClockPct);
+        if (mhz > 0) {
+            LOG_INFO("gpu", "百分比锁频: 目标 %d%% x 最大 %dMHz = %dMHz",
+                     p.gpuClockPct, maxMhz, mhz);
+            p.gpuClockMhz = mhz;
+        }
+    }
+    if (p.minGpuClockPct > 0) {
+        int mhz = toMhz(p.minGpuClockPct);
+        if (mhz > 0) {
+            LOG_INFO("gpu", "百分比锁频: 下限 %d%% x 最大 %dMHz = %dMHz",
+                     p.minGpuClockPct, maxMhz, mhz);
+            p.minGpuClockMhz = mhz;
+        }
+    }
+    if (p.autoClockPct > 0) {
+        int mhz = toMhz(p.autoClockPct);
+        if (mhz > 0) {
+            LOG_INFO("gpu", "百分比锁频: 自动起始 %d%% x 最大 %dMHz = %dMHz",
+                     p.autoClockPct, maxMhz, mhz);
+            p.autoClockMhz = mhz;
+        }
+    }
+}
+
 void PowerGuardApp::setProfileForGame(const std::string& game) {
     profile_ = baseProfile_;
     activeGameProfile_.clear();
@@ -605,6 +695,12 @@ void PowerGuardApp::setProfileForGame(const std::string& game) {
     std::string used;
     if (!profilePath_.empty() && applyGameProfile(profilePath_, game, profile_, used)) {
         activeGameProfile_ = used;
+    }
+
+    resolvePercentClocks(profile_);
+    normalizeProfile(profile_);
+
+    if (!activeGameProfile_.empty()) {
         std::string gpuText = profile_.gpuClockMhz > 0
             ? std::to_string(profile_.gpuClockMhz) + "MHz"
             : std::to_string(profile_.gpuLimitW) + "W";
@@ -614,7 +710,6 @@ void PowerGuardApp::setProfileForGame(const std::string& game) {
                  gpuText.c_str(), profile_.cpuMaxPct,
                  profile_.preferCpu ? "CPU" : "GPU");
     }
-    normalizeProfile(profile_);
 }
 
 void PowerGuardApp::inputLoop() {

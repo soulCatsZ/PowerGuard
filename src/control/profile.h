@@ -31,6 +31,12 @@ struct ControlProfile {
     int  autoClockMhz = 1400;    // 功耗上限写入失败时自动锁频的起始值
     bool gpuClockAuto = true;    // --no-gpu-clock 可关闭自动降级
 
+    // 百分比时基: 按 NVML 报告的最大核心频率换算, 换机器不用改数值。
+    // 只要 >0 就优先于对应的绝对 MHz 值 (运行时由 GPU 实际最大频率换算)。
+    int  gpuClockPct = 0;        // 锁频目标 (如 60 = 最大频率的 60%)
+    int  minGpuClockPct = 0;     // 锁频下限
+    int  autoClockPct = 0;       // 自动锁频起始值
+
     // 电池负反馈
     double batteryThresholdW = 2.0;  // 电池放电超过该值视为供电缺口
     double deficitEnergyWh = 0.10;   // 缺口累计到多少 Wh 才真的降档

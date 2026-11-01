@@ -29,6 +29,17 @@ int readCpuMaxState() {
     return rc == ERROR_SUCCESS ? (int)value : -1;
 }
 
+int readCpuMaxStateDC() {
+    GUID* scheme = nullptr;
+    if (PowerGetActiveScheme(nullptr, &scheme) != ERROR_SUCCESS || !scheme)
+        return -1;
+    DWORD value = 0;
+    DWORD rc = PowerReadDCValueIndex(nullptr, scheme, &kProcessorSubgroup,
+                                     &kProcessorThrottleMax, &value);
+    LocalFree(scheme);
+    return rc == ERROR_SUCCESS ? (int)value : -1;
+}
+
 CpuLimit::~CpuLimit() {
     close();
 }
