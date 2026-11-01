@@ -148,6 +148,9 @@ bool applyProfileKey(ControlProfile& p, const std::string& key,
     if (key == "min_gpu_clock_pct") return parseInt(value, p.minGpuClockPct);
     if (key == "auto_clock_pct")    return parseInt(value, p.autoClockPct);
 
+    if (key == "budget" || key == "input_budget")
+        return parseInt(value, p.inputBudgetW);
+
     if (key == "battery_threshold") return parseDouble(value, p.batteryThresholdW);
     if (key == "deficit_energy")    return parseDouble(value, p.deficitEnergyWh);
     if (key == "deficit_window")    return parseInt(value, p.deficitWindowSec);

@@ -142,7 +142,7 @@ void printBattery(const BatterySample& s, const SYSTEM_BATTERY_STATE& st,
     printf("\n[电池]\n");
     if (!structOk || !st.BatteryPresent) {
         printf("  未检测到电池。\n");
-        printf("  没有电池缺口信号时, 闭环只能按固定上限运行, 无法判断是否超出供电。\n");
+        printf("  可以用 --budget 按 CPU+GPU 合计功率做闭环, 不需要电池信号。\n");
         return;
     }
 
@@ -224,8 +224,11 @@ void printSuggestion(bool gpuUnverified, int gpuMaxClock,
     }
 
     if (!batteryUsable) {
-        printf("\n  注意: 电池方向信号不可用, 闭环无法判断是否超出供电预算,\n");
-        printf("        只能按静态上限运行。\n");
+        printf("\n  注意: 电池方向信号不可用, 默认闭环无法判断是否超出供电。\n");
+        printf("        改用预算模式即可 (看 CPU+GPU 瓦数, 不依赖电池):\n");
+        printf("    PowerGuard.exe --profile usbc --budget 80 --process <游戏>\n");
+        printf("  预算值 = 电源功率扣除屏幕/主板等固定开销后留给 CPU+GPU 的部分,\n");
+        printf("  100W USB-C 一般从 80 左右试起, 按实际断电情况微调。\n");
     }
 }
 
@@ -412,7 +415,8 @@ int runDiagnose(bool validate) {
     printf("  CPU 最大状态 : %s\n",
            cpuProbeDone ? (cpuWritable ? "可读可写 (实测)" : "不可写 (实测)")
                         : (cpuUsable ? "可读" : "不可用"));
-    printf("  电池缺口信号 : %s\n", batteryUsable ? "可用" : "不可用");
+    printf("  电池缺口信号 : %s\n", batteryUsable ? "可用"
+                                                 : "不可用 (可改用 --budget 预算模式)");
 
     bool anyLever = powerWritable || clockUsable || cpuUsable || gpuUnverified;
     if (!gpuOk && cpuUsable)

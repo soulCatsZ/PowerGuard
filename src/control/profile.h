@@ -38,8 +38,11 @@ struct ControlProfile {
     int  minGpuClockPct = 0;     // 锁频下限
     int  autoClockPct = 0;       // 自动锁频起始值
 
+    // 无电池 / 不看电池时的预算模式: 按 CPU+GPU 合计功率与预算比较
+    int  inputBudgetW = 0;           // >0 启用; 单位 W, 是 CPU+GPU 的合计预算
+
     // 电池负反馈
-    double batteryThresholdW = 2.0;  // 电池放电超过该值视为供电缺口
+    double batteryThresholdW = 2.0;  // 电池放电(或超出预算)超过该值视为缺口
     double deficitEnergyWh = 0.10;   // 缺口累计到多少 Wh 才真的降档
     int  deficitWindowSec = 120;     // 缺口能量的衰减时间常数(秒)
     int  stepCooldownSec = 15;       // 两次降档之间的最短间隔(秒)

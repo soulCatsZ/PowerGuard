@@ -4,24 +4,41 @@ cd /d "%~dp0"
 
 rem ============================================================
 rem  PowerGuard quick start
-rem    Double-click            -> monitors DEFAULT_GAME
-rem    PowerGuard.bat Game.exe -> monitors that process
-rem    Elevation (UAC) is requested automatically; GPU
-rem    power-limit / clock-lock need administrator rights.
+rem    PowerGuard.bat Game.exe     -> monitor that process (asks for UAC)
+rem    PowerGuard.bat --diagnose   -> pass options through as-is
+rem    Elevation (UAC) is only requested for the game-launch path.
+rem    GPU power-limit / clock-lock need administrator rights.
 rem ============================================================
 
-set "DEFAULT_GAME=Starfield.exe"
-
 set "EXE=bin\PowerGuard.exe"
-set "GAME=%~1"
-if "%GAME%"=="" set "GAME=%DEFAULT_GAME%"
-if /i not "%GAME:~-4%"==".exe" set "GAME=%GAME%.exe"
-
 if not exist "%EXE%" (
     echo [ERROR] %EXE% not found. Build it first with build.sh
     pause
     exit /b 1
 )
+
+if "%~1"=="" (
+    echo Usage: PowerGuard.bat Game.exe
+    echo        PowerGuard.bat --diagnose
+    echo.
+    echo Examples:
+    echo   PowerGuard.bat Cyberpunk2077.exe
+    echo   PowerGuard.bat --diagnose
+    pause
+    exit /b 1
+)
+
+rem Options are passed straight to PowerGuard.exe (no UAC needed for --diagnose).
+set "ARG1=%~1"
+if "%ARG1:~0,2%"=="--" (
+    "%EXE%" %*
+    echo.
+    pause
+    exit /b
+)
+
+set "GAME=%~1"
+if /i not "%GAME:~-4%"==".exe" set "GAME=%GAME%.exe"
 
 fltmc >nul 2>&1
 if not errorlevel 1 goto run

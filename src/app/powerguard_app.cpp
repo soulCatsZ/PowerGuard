@@ -11,6 +11,7 @@
 
 #include "control/game_profile.h"
 #include "control/state_file.h"
+#include "common/version.h"
 #include "diag/diagnose.h"
 
 namespace pg {
@@ -57,7 +58,8 @@ void printUsage() {
         "  --auto-clock-pct <%%>    自动锁频起始值的百分比\n"
         "  --clock-step <MHz>      每次升降档幅度 (默认 100)\n"
         "  --no-gpu-clock          关闭\"功耗上限失败后自动锁频\"\n"
-        "  --battery-threshold <W> 电池放电阈值 (默认 2.0)\n"
+        "  --budget <W>            预算模式: CPU+GPU 合计超过该值就降档 (无电池/台式机)\n"
+        "  --battery-threshold <W> 电池放电(或超预算)阈值 (默认 2.0)\n"
         "  --deficit-energy <Wh>   缺口累计到多少 Wh 才降档 (默认 0.10)\n"
         "  --deficit-window <秒>   缺口能量衰减时间常数 (默认 120)\n"
         "  --step-cooldown <秒>    两次降档最短间隔 (默认 15)\n"
@@ -75,6 +77,7 @@ void printUsage() {
         "  --diagnose-validate     同上, 并实测功耗上限/锁频是否可写 (需管理员)\n"
         "  --web                   启动本机 Web 控制台 (http://127.0.0.1:8080)\n"
         "  --web-port <端口>       指定 Web 端口\n"
+        "  --version               显示版本号\n"
         "  --help                  显示本帮助\n"
         "\n"
         "提示: GPU 限功耗需要管理员权限, 并以管理员身份运行; 普通权限下只控制 CPU。\n");
@@ -143,6 +146,9 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             profile_.controlGpu = false;
         } else if (a == "--no-cpu") {
             profile_.controlCpu = false;
+        } else if (a == "--version" || a == "-v") {
+            printf("PowerGuard %s\n", POWERGUARD_VERSION);
+            std::exit(0);
         } else if (a == "--help" || a == "-h") {
             printUsage();
             std::exit(0);
@@ -188,6 +194,8 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             profile_.clockStepMhz = parseInt(v, profile_.clockStepMhz);
         } else if (a == "--no-gpu-clock") {
             profile_.gpuClockAuto = false;
+        } else if (matchOpt(i, a, "budget", v)) {
+            profile_.inputBudgetW = parseInt(v, profile_.inputBudgetW);
         } else if (matchOpt(i, a, "battery-threshold", v)) {
             profile_.batteryThresholdW = parseDouble(v, profile_.batteryThresholdW);
         } else if (matchOpt(i, a, "deficit-energy", v)) {
@@ -236,6 +244,8 @@ void PowerGuardApp::normalizeProfile(ControlProfile& p) {
     if (p.cpuMinPct > p.cpuMaxPct) p.cpuMinPct = p.cpuMaxPct;
     if (p.cpuStepPct < 1)  p.cpuStepPct = 1;
     if (p.cpuStepPct > 50) p.cpuStepPct = 50;
+    if (p.inputBudgetW < 0)   p.inputBudgetW = 0;
+    if (p.inputBudgetW > 1000) p.inputBudgetW = 1000;
     if (p.batteryThresholdW < 0) p.batteryThresholdW = 0;
     if (p.deficitEnergyWh < 0) p.deficitEnergyWh = 0;
     if (p.deficitWindowSec < 5) p.deficitWindowSec = 5;
@@ -459,7 +469,7 @@ int PowerGuardApp::run() {
 
     Logger::instance().init("logs", Level::Info);
     startTick_ = GetTickCount64();
-    LOG_INFO("core", "PowerGuard 启动");
+    LOG_INFO("core", "PowerGuard %s 启动", POWERGUARD_VERSION);
     LOG_DEBUG("core", "日志等级已设为 DEBUG 时可看到逐次采样");
 
     // 单实例: 两个实例会互相覆盖状态文件, 恢复正常值就全乱了。
@@ -560,6 +570,11 @@ int PowerGuardApp::run() {
                                      : (profile_.preferCpu ? "CPU 优先" : "GPU 优先"),
                  profile_.cpuPowerStep ? "" : " (CPU 不参与降档)",
                  profile_.cpuStepPct);
+
+        if (profile_.inputBudgetW > 0)
+            LOG_INFO("ctl", "预算模式: CPU+GPU 合计超过 %dW 持续 %ds 后降档 "
+                            "(不使用电池信号)",
+                     profile_.inputBudgetW, profile_.holdDownSec);
 
         if (profile_.controlGpu) {
             if (profile_.gpuClockMhz > 0)
@@ -775,6 +790,8 @@ void PowerGuardApp::sampleOnce() {
     // 功率占比供 prefer=auto 选杠杆: 指数平滑, 避免单帧抖动改变顺序
     double c = cpu_.read();
     double g = gpu_.read();
+    lastCpuW_ = c;
+    lastGpuW_ = g;
     if (c >= 0 && g >= 0 && c + g > 1.0) {
         double share = c / (c + g);
         cpuShare_ = cpuShare_ < 0 ? share : cpuShare_ * 0.9 + share * 0.1;
@@ -1135,17 +1152,37 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
     }
     lastControlTick_ = now;
 
-    // 电池反馈只在插电时有效; 拔电/读不到电池时不做任何升降档
-    if (!bat.valid || !bat.acOnline) {
-        batteryOverSince_ = 0;
-        batteryClearSince_ = 0;
-        deficitEnergyWh_ = 0;
-        return;
+    // 反馈源: 默认看电池是否在放电; --budget 模式改看 CPU+GPU 合计是否超出预算,
+    // 适用于没有电池(台式机)、电池信号不可用, 或不想依赖电池的机器。
+    const bool budgetMode = profile_.inputBudgetW > 0;
+    const char* deficitSource = budgetMode ? "超出预算" : "补电";
+    double deficitRateW = 0;
+
+    if (budgetMode) {
+        if (lastCpuW_ < 0 || lastGpuW_ < 0) {
+            batteryOverSince_ = 0;
+            batteryClearSince_ = 0;
+            deficitEnergyWh_ = 0;
+            return;                        // 功率还没采到, 下一拍再判断
+        }
+        double over = lastCpuW_ + lastGpuW_ - profile_.inputBudgetW;
+        if (over >= profile_.batteryThresholdW)
+            deficitRateW = over;
+    } else {
+        // 电池反馈只在插电时有效; 拔电/读不到电池时不做任何升降档
+        if (!bat.valid || !bat.acOnline) {
+            batteryOverSince_ = 0;
+            batteryClearSince_ = 0;
+            deficitEnergyWh_ = 0;
+            return;
+        }
+        if (bat.discharging && bat.rateW >= profile_.batteryThresholdW)
+            deficitRateW = bat.rateW;
     }
 
-    bool deficit = bat.discharging && bat.rateW >= profile_.batteryThresholdW;
+    bool deficit = deficitRateW > 0;
     if (deficit) {
-        deficitEnergyWh_ += bat.rateW * dt / 3600.0;
+        deficitEnergyWh_ += deficitRateW * dt / 3600.0;
     } else {
         double tau = profile_.deficitWindowSec > 0 ? profile_.deficitWindowSec : 1.0;
         deficitEnergyWh_ *= std::exp(-dt / tau);
@@ -1179,8 +1216,8 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
                         if (next < profile_.minGpuClockMhz) next = profile_.minGpuClockMhz;
                         if (gpu_.setGpuClockLock((unsigned)next)) {
                             appliedGpuClockMhz_ = next;
-                            LOG_WARN("ctl", "缺口能量 %.3fWh (补电 %.1fW), GPU 频率降到 %dMHz",
-                                     deficitEnergyWh_, bat.rateW, next);
+                            LOG_WARN("ctl", "缺口能量 %.3fWh (%s %.1fW), GPU 频率降到 %dMHz",
+                                     deficitEnergyWh_, deficitSource, deficitRateW, next);
                             return true;
                         }
                     }
@@ -1189,8 +1226,8 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
                         if (next < profile_.minGpuW) next = profile_.minGpuW;
                         if (gpu_.setPowerLimitW((unsigned)next)) {
                             appliedGpuW_ = next;
-                            LOG_WARN("ctl", "缺口能量 %.3fWh (补电 %.1fW), GPU 上限降到 %dW",
-                                     deficitEnergyWh_, bat.rateW, next);
+                            LOG_WARN("ctl", "缺口能量 %.3fWh (%s %.1fW), GPU 上限降到 %dW",
+                                     deficitEnergyWh_, deficitSource, deficitRateW, next);
                             return true;
                         }
                     }
@@ -1205,8 +1242,8 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
                     if (next < profile_.cpuMinPct) next = profile_.cpuMinPct;
                     if (!cpuLimit_.setMaxState(next)) return false;
                     appliedCpuPct_ = next;
-                    LOG_WARN("ctl", "缺口能量 %.3fWh (补电 %.1fW), CPU 最大状态降到 %d%%",
-                             deficitEnergyWh_, bat.rateW, next);
+                    LOG_WARN("ctl", "缺口能量 %.3fWh (%s %.1fW), CPU 最大状态降到 %d%%",
+                             deficitEnergyWh_, deficitSource, deficitRateW, next);
                     return true;
                 };
 
@@ -1249,8 +1286,8 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
                     (!profile_.cpuPowerStep || !cpuControlOk_ ||
                      appliedCpuPct_ <= profile_.cpuMinPct);
                 if (atFloor && (!lastFloorWarn_ || now - lastFloorWarn_ >= 60000)) {
-                    LOG_WARN("ctl", "补电 %.1fW, 缺口 %.3fWh, 但已到降档下限 "
-                                    "(GPU %s, CPU %s)", bat.rateW, deficitEnergyWh_,
+                    LOG_WARN("ctl", "%s %.1fW, 缺口 %.3fWh, 但已到降档下限 "
+                                    "(GPU %s, CPU %s)", deficitSource, deficitRateW, deficitEnergyWh_,
                              usedGpuClock_ ? "锁频下限" : "下限",
                              profile_.cpuPowerStep ? "下限" : "未参与");
                     lastFloorWarn_ = now;

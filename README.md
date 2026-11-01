@@ -1,6 +1,33 @@
 # PowerGuard
 
+[![build](https://github.com/soulCatsZ/PowerGuard/actions/workflows/build.yml/badge.svg)](https://github.com/soulCatsZ/PowerGuard/actions/workflows/build.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
+
 > 用电池的"缺口"当传感器，让只吃 100W USB-C 的笔记本在游戏里**既不断电、也不白瞎性能**。
+
+<details>
+<summary><b>English overview</b></summary>
+
+PowerGuard is a Windows tool (C++17, single executable) that keeps a gaming
+laptop alive on a 100W USB-C PD charger. It treats "AC connected but the battery
+is discharging" as a real-time power-deficit sensor and continuously adjusts the
+GPU power limit / locked clocks / CPU maximum processor state, instead of
+applying one static cap. It also supports per-game profiles, percentage-based
+clock targets, capability probing (`--diagnose`), a no-battery budget mode
+(`--budget`) and a local web console.
+
+GPU control currently supports **NVIDIA only** (via NVML) and requires
+administrator rights. CPU control works without elevation.
+
+**Disclaimer:** PowerGuard writes GPU power limits, GPU clocks and CPU power
+settings. Use at your own risk; no warranty. See [LICENSE](LICENSE).
+
+</details>
+
+> **安全提示**：本工具会修改 GPU 功耗上限/核心频率和 CPU 最大处理器状态。
+> 请只在自己的设备上使用，并先用 `--diagnose` / `--dry-run` 确认行为；
+> 作者不对硬件损坏、数据丢失、保修失效或断电事故负责。详见 [LICENSE](LICENSE)。
 
 PowerGuard 是一个 Windows 上的实时功耗调控工具（C++17 / MinGW，单文件可执行）。
 它每秒读取 CPU、GPU、电池的真实功率，把"插着电却还在放电"这件事本身当作负反馈，
@@ -88,6 +115,8 @@ PowerGuard 的出发点就是：**别猜整机功耗，直接看电池还不还�
 - **降档冷却**：每次只动一档，观察后再说，避免震荡。
 - **迟滞（hold-down / hold-up）**：降档要缺口持续 5 秒，回升要稳定 300 秒，天然防抖。
 - **双杠杆 + 可配置顺序**：GPU 功耗上限 → GPU 锁频 → CPU 最大处理器状态，按游戏选优先序。
+- **预算模式**：没有电池（台式机）或电池信号不可用时，改看 CPU+GPU 合计功率与预算，
+  其余迟滞/冷却/升降档逻辑完全复用。
 - **杠杆跳变**：锁频值明显高于实际运行频率时（比如锁 1400 实际只有 1070），
   下一步直接跳到实际值以下，不做"锁了个寂寞"的无用功。
 - **定时回写**：每 10 秒重新确认当前上限没被驱动/厂商软件改掉。
@@ -202,12 +231,16 @@ auto_clock_pct = 45       # 功耗上限不可写时, 自动锁频的起始值
 
 ### 编译
 
+前置：Windows 10/11 x64 + MinGW-w64 g++（MSYS2 的 `mingw-w64-x86_64-gcc` 即可）。
+不想装编译器的话，直接下载 [Releases](https://github.com/soulCatsZ/PowerGuard/releases)
+里的 `PowerGuard-<版本>-win64.zip`，解压即用。
+
 ```bash
 ./build.sh
 ```
 
-（MinGW g++，自动收集 `src/**/*.cpp`，链接
-`-lpdh -lpowrprof -lsetupapi -luuid -lws2_32 -static`。）
+（自动收集 `src/**/*.cpp`，链接
+`-lpdh -lpowrprof -lsetupapi -luuid -lws2_32 -static`，产物是单文件 exe。）
 
 ### 先探测一次（换机器必做）
 
@@ -226,10 +259,26 @@ auto_clock_pct = 45       # 功耗上限不可写时, 自动锁频的起始值
 PowerGuard.bat Cyberpunk2077.exe
 ```
 
-脚本会**自动申请管理员权限**（GPU 锁频/功耗上限需要），默认监控
-`Starfield.exe`（可在文件里改 `DEFAULT_GAME`），并以
+脚本会**自动申请管理员权限**（GPU 锁频/功耗上限需要），并以
 `--profile usbc --web --process <游戏> --only-running` 运行。
 启动后浏览器打开 <http://127.0.0.1:8080>。
+传入 `--diagnose` 等选项时脚本直接透传，不提权；不带参数则打印用法。
+
+### 没有电池 / 台式机：预算模式
+
+默认闭环依赖"插电却还在放电"这个信号。没有电池、电池驱动不可用，或者不想让
+电池参与决策时，用 `--budget`：
+
+```bash
+./bin/PowerGuard.exe --profile usbc --budget 80 --process <游戏>
+```
+
+`80` 是留给 **CPU+GPU 的合计预算**（100W 电源扣掉屏幕/主板等固定开销后大致是这个
+量级），不是整机功率墙。程序每秒比较 CPU+GPU 合计功率：超出预算持续 `hold-down`
+秒且能量累计达到阈值才降档，稳定 `hold-up` 秒后回升，与电池模式共用同一套迟滞和
+冷却逻辑。预算模式下电池读数仍会记录，但不再参与决策。
+
+`profiles.ini` 里对应键是 `budget = 80`。
 
 ### 命令行
 
@@ -242,6 +291,8 @@ PowerGuard.bat Cyberpunk2077.exe
 ./bin/PowerGuard.exe --restore-if-stale                      # 只清理残留（登录任务用）
 ./bin/PowerGuard.exe --diagnose                              # 能力探测（只读）
 ./bin/PowerGuard.exe --diagnose-validate                     # 探测 + 写权限实测（管理员）
+./bin/PowerGuard.exe --profile usbc --budget 80 --process bg3.exe  # 无电池预算模式
+./bin/PowerGuard.exe --version                               # 版本号
 ```
 
 输入 `quit` 回车退出；Ctrl+C / 关窗口同样会恢复。
@@ -283,7 +334,8 @@ PowerGuard.bat Cyberpunk2077.exe
 | `--auto-clock-pct PCT` | 0 | 自动锁频起始值的百分比 |
 | `--clock-step MHZ` | 100 | 锁频每次升降幅度 |
 | `--no-gpu-clock` | 关 | 关闭"功耗上限失败后自动锁频" |
-| `--battery-threshold W` | 2.0 | 电池放电超过该值视为供电缺口 |
+| `--budget W` | 0（关） | 预算模式：CPU+GPU 合计超过该值就降档（无电池/台式机） |
+| `--battery-threshold W` | 2.0 | 电池放电（或超预算）超过该值视为供电缺口 |
 | `--deficit-energy Wh` | 0.10 | 缺口能量累计到该值才降档（滤掉瞬时尖峰） |
 | `--deficit-window S` | 120 | 缺口消失后能量衰减的时间常数 |
 | `--step-cooldown S` | 15 | 两次降档之间的最短间隔 |
@@ -300,6 +352,7 @@ PowerGuard.bat Cyberpunk2077.exe
 | `--restore-if-stale` | — | 仅当状态文件属于已退出进程时恢复 |
 | `--diagnose` | — | 只读能力探测（GPU 杠杆 / CPU / 电池信号 / 建议参数） |
 | `--diagnose-validate` | — | 同上，并实测功耗上限与锁频是否可写（管理员） |
+| `--version` | — | 显示版本号 |
 
 ---
 
@@ -336,6 +389,9 @@ prefer = gpu
 RTX 5060、4060 等不同频率的卡上都能得到接近的比例，不用每台机器重调。
 百分比只要大于 0 就优先于对应的绝对 MHz 键。
 
+**没有电池时**用 `budget = 80` 取代电池缺口信号；它和 `battery_threshold`、
+`hold_down` 等键共用同一套闭环参数。
+
 要点：
 
 - 段名 = 进程名，大小写不敏感，`.exe` 可省略；`[default]` 先应用，游戏段再覆盖。
@@ -353,8 +409,10 @@ RTX 5060、4060 等不同频率的卡上都能得到接近的比例，不用每�
 - **锁频同样需要管理员**；非管理员启动会明确提示并退化为只做 CPU 控制。
 - **CPU 上限**：改当前电源计划的"最大处理器状态"（AC），普通用户即可，退出时恢复。
   它限制的是频率上限，不是电压/功耗墙。
-- 只支持 **NVIDIA GPU**（NVML）。其他显卡请先跑 `--diagnose`，目前会明确显示"GPU 不可用"，
-  而不是假装支持。
+- 只支持 **NVIDIA GPU**（NVML）。AMD / Intel 显卡请先跑 `--diagnose`，目前会明确显示
+  "GPU 不可用"，而不是假装支持；此时仍可用 CPU 杠杆或预算模式。
+- **没有电池**（或电池方向信号不可用）时，默认闭环无法判断供电缺口；请用
+  `--budget` / `profiles.ini` 的 `budget` 键切换到预算模式。
 - 不同机器的 GPU 能力不同：先用 `--diagnose` / `--diagnose-validate` 确认功耗上限、锁频
   到底哪个可写，再用百分比参数写 `profiles.ini`。
 - 厂商控制中心可能反复改写上限，程序每 10 秒回写一次。
@@ -387,6 +445,11 @@ RTX 5060、4060 等不同频率的卡上都能得到接近的比例，不用每�
 
 表头变化时旧文件自动改名为 `power_YYYY-MM-DD.csv.legacy`，避免新旧列混写。
 
+### 隐私
+
+日志与 CSV 只写在本机 `logs/` 目录；Web 控制台默认只监听 `127.0.0.1`。
+程序不包含遥测，不上传任何数据。公开 issue 前请检查日志里是否包含个人路径或进程名。
+
 ### 数据来源
 
 - **CPU**：`\Energy Meter(RAPL_Package0_PKG)\Power`（Intel RAPL，单位毫瓦）。
@@ -404,7 +467,10 @@ RTX 5060、4060 等不同频率的卡上都能得到接近的比例，不用每�
 ```text
 PowerGuard/
 ├── build.sh                        # 编译脚本
-├── PowerGuard.bat                  # 快捷启动（自动提权，监控默认游戏）
+├── scripts/package.sh              # 发布打包（生成 dist/*.zip）
+├── .github/workflows/build.yml     # CI 构建；打 v* 标签时自动发布
+├── LICENSE / CHANGELOG.md / CONTRIBUTING.md
+├── PowerGuard.bat                  # 快捷启动（传游戏名，自动提权）
 ├── PowerGuard-restore.bat          # 快捷恢复（崩溃后还原设置）
 ├── PowerGuard-recovery-task.bat    # 注册/删除“登录时清理残留限制”的计划任务
 ├── PowerGuard-recovery-task.ps1
@@ -436,7 +502,8 @@ PowerGuard/
     │   └── web_server.*            # 本地 Web 控制台
     └── common/
         ├── logger.h                # 日志
-        └── power_tracker.h         # 功率写入去抖
+        ├── power_tracker.h         # 功率写入去抖
+        └── version.h               # 版本号（--version / 发布包）
 ```
 
 ---
@@ -450,3 +517,13 @@ PowerGuard/
 4. 管理员权限跑同一条：确认 GPU 走的是上限还是锁频，用 `nvidia-smi -q -d POWER` 对照。
 5. 游戏内看 CSV：`battery_w` 应逐步降到阈值附近，`action` 列出现 `step_down` / `step_up`。
 6. 任务管理器结束进程后重启：确认状态文件被识别、残留限制被恢复。
+
+---
+
+## 十二、参与贡献与许可
+
+- 构建、测试和提交约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 版本变更见 [CHANGELOG.md](CHANGELOG.md)。
+- 使用 [MIT 许可证](LICENSE)。
+- 反馈问题时请附上 `--diagnose` 输出（可去掉个人路径）、复现步骤和期望行为。
+  涉及硬件写入的 issue 请说明是否以管理员运行、是否有电池信号。

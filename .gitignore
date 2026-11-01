@@ -12,6 +12,10 @@ logs/
 *.csv.legacy
 *.csv.legacy*
 
+# 发布包 / CI 产物
+dist/
+*.zip
+
 # 编辑器 / 调试 / 系统文件
 .gdb_history
 .vscode/
