@@ -37,14 +37,21 @@ if "%ARG1:~0,2%"=="--" (
     exit /b
 )
 
-set "GAME=%~1"
+rem Drag-and-drop hands us a full path; keep the file name only.
+set "GAME=%~nx1"
 if /i not "%GAME:~-4%"==".exe" set "GAME=%GAME%.exe"
 
 fltmc >nul 2>&1
 if not errorlevel 1 goto run
 
 echo Requesting administrator privileges...
-powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%GAME%' -Verb RunAs"
+rem [char]34 = '"' : keeps names like "The Witcher 3.exe" in one argument.
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList ([char]34 + '%GAME%' + [char]34) -Verb RunAs"
+if errorlevel 1 (
+    echo [ERROR] Elevation was cancelled or denied.
+    echo         Right-click PowerGuard.bat and pick "Run as administrator".
+    pause
+)
 exit /b 0
 
 :run

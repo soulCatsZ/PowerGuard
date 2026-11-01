@@ -39,6 +39,9 @@ std::string ProcessMonitor::trimExe(std::string name) {
     auto notSpace = [](unsigned char c) { return !std::isspace(c); };
     name.erase(name.begin(), std::find_if(name.begin(), name.end(), notSpace));
     name.erase(std::find_if(name.rbegin(), name.rend(), notSpace).base(), name.end());
+    // 允许传入完整路径 (把 exe 拖到 bat 上时就是绝对路径), 只保留文件名部分
+    size_t slash = name.find_last_of("\\/");
+    if (slash != std::string::npos) name.erase(0, slash + 1);
     std::transform(name.begin(), name.end(), name.begin(),
                    [](unsigned char c) { return (char)std::tolower(c); });
     if (name.size() > 4 && name.compare(name.size() - 4, 4, ".exe") == 0)
