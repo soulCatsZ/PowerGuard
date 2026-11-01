@@ -267,12 +267,17 @@ int runDiagnose(bool validate) {
         std::string name = gpu.name();
         int curClock = gpu.currentGpuClockMhz();
         gpuMaxClock = gpu.maxGpuClockMhz();
+        int gpuMinClock = gpu.minGpuClockMhz();
         double watts = gpu.read();
 
         printf("\n[GPU] %s\n", name.empty() ? "(型号未知)" : name.c_str());
         printf("  当前核心频率 : %d MHz\n", curClock);
         printf("  最大核心频率 : %d MHz%s\n", gpuMaxClock,
                gpuMaxClock > 0 ? "  <- 百分比换算基准" : "");
+        printf("  锁频范围     : %s - %s MHz%s\n",
+               gpuMinClock > 0 ? std::to_string(gpuMinClock).c_str() : "?",
+               gpuMaxClock > 0 ? std::to_string(gpuMaxClock).c_str() : "?",
+               gpuMinClock > 0 ? "  (锁频只限上限, 低负载仍可降频)" : "");
         printf("  当前功耗     : %.1f W\n", watts);
 
         int req = gpu.requestedPowerLimitW();

@@ -134,8 +134,9 @@ bool applyProfileKey(ControlProfile& p, const std::string& key,
     if (key == "cpu_power_step")   return parseBool(value, p.cpuPowerStep);
     if (key == "prefer") {
         std::string v = lower(trim(value));
-        if (v == "cpu") { p.preferCpu = true;  return true; }
-        if (v == "gpu") { p.preferCpu = false; return true; }
+        if (v == "cpu")  { p.preferCpu = true;  p.preferAuto = false; return true; }
+        if (v == "gpu")  { p.preferCpu = false; p.preferAuto = false; return true; }
+        if (v == "auto") { p.preferCpu = false; p.preferAuto = true;  return true; }
         return false;
     }
     if (key == "gpu_clock")        return parseInt(value, p.gpuClockMhz);

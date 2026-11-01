@@ -67,7 +67,9 @@ PowerGuard 的出发点就是：**别猜整机功耗，直接看电池还不还�
 
 **③ 双杠杆，按游戏选先后。**
 - GPU 优先（默认）：先降 GPU（锁频或功耗上限），到底了再动 CPU；
-- CPU 优先（`prefer = cpu`）：博德之门3 这类"缺口主要来自 CPU"的游戏，先降 CPU，GPU 兜底。
+- CPU 优先（`prefer = cpu`）：博德之门3 这类"缺口主要来自 CPU"的游戏，先降 CPU，GPU 兜底；
+- 自动（`prefer = auto` / `--prefer-auto`）：按近期 CPU/GPU 功率占比（约 10 秒平滑）
+  选顺序——CPU 占一半以上就先降 CPU，否则先动 GPU，换游戏不用手调。
 
 **④ 自动回升。**
 缺口连续 `hold-up`（默认 300 秒）消失，就回升一档，回到菜单/过场时性能能还回来。
@@ -172,7 +174,7 @@ PowerGuard.exe --diagnose-validate   # 额外实测功耗上限/锁频能不能�
 
 探测内容：
 
-- **GPU**：型号、当前/最大核心频率、当前/默认/生效功耗上限、允许范围、
+- **GPU**：型号、当前/最大核心频率、锁频范围（硬件下限–上限）、当前/默认/生效功耗上限、允许范围、
   功耗上限是否可写、锁频是否可用（未提权时会明确标"需要管理员"，不会误判成"不可用"）；
 - **CPU**：型号、物理核心/线程、活动电源方案、AC/DC 最大处理器状态、写权限；
 - **电池**：方向信号来自电池类驱动还是兜底 API、充放电标志是否冲突、功率、电量、
@@ -190,6 +192,9 @@ auto_clock_pct = 45       # 功耗上限不可写时, 自动锁频的起始值
 
 程序用 NVML 报告的**最大核心频率**换算成实际 MHz（10MHz 对齐），
 换一张频率不同的显卡不用重调数值；百分比只要写了，就优先于对应的绝对 MHz 值。
+
+锁频只设**上限**：下限取 GPU 的 P0 最低频率（`--diagnose` 的"锁频范围"一栏），
+所以目标值不是地板——桌面、加载、过场等低负载场景驱动仍可降频省电。
 
 ---
 
@@ -270,6 +275,7 @@ PowerGuard.bat Cyberpunk2077.exe
 | `--cpu-step PCT` | 5 | CPU 每次降/升的百分点 |
 | `--no-cpu-step` | 关 | 不把 CPU 当降档杠杆（只压 GPU） |
 | `--prefer-cpu` | 关 | 降档先动 CPU、再动 GPU（默认 GPU 优先） |
+| `--prefer-auto` | 关 | 按近期 CPU/GPU 功率占比自动选择先动哪个杠杆 |
 | `--gpu-clock MHZ` | 0 | 显式锁定 GPU 核心频率（功耗上限写不进去时用） |
 | `--min-gpu-clock MHZ` | 800 | 锁频降档下限 |
 | `--gpu-clock-pct PCT` | 0 | 按最大核心频率百分比锁频（换机器不用改数值） |
@@ -311,7 +317,7 @@ PowerGuard.bat Cyberpunk2077.exe
 [bg3_dx11]        # 匹配 bg3_dx11.exe
 gpu_clock = 900
 cpu_max = 89
-prefer = cpu      # 降档先动 CPU
+prefer = cpu      # 降档先动 CPU（cpu / gpu / auto）
 
 [starfield]
 gpu_clock = 1400
@@ -320,7 +326,7 @@ prefer = gpu
 ```
 
 可用键（与命令行同名）：`gpu_limit`、`min_gpu`、`max_gpu`、`cpu_max`、`cpu_min`、
-`cpu_step`、`cpu_power_step`、`prefer`、`gpu_clock`、`min_gpu_clock`、`clock_step`、
+`cpu_step`、`cpu_power_step`、`prefer`（cpu / gpu / auto）、`gpu_clock`、`min_gpu_clock`、`clock_step`、
 `auto_clock`、`gpu_clock_auto`、`gpu_clock_pct`、`min_gpu_clock_pct`、`auto_clock_pct`、
 `battery_threshold`、`deficit_energy`、`deficit_window`、
 `step_cooldown`、`step`、`hold_down`、`hold_up`，以及 `no_gpu_clock` / `no_cpu_step`。

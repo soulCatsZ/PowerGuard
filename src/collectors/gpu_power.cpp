@@ -68,6 +68,8 @@ bool GpuPower::open() {
     resetLockedClocks_  = (decltype(resetLockedClocks_)) GetProcAddress(dll_, "nvmlDeviceResetGpuLockedClocks");
     getClockInfo_       = (decltype(getClockInfo_))      GetProcAddress(dll_, "nvmlDeviceGetClockInfo");
     getMaxClockInfo_    = (decltype(getMaxClockInfo_))   GetProcAddress(dll_, "nvmlDeviceGetMaxClockInfo");
+    getMinMaxClockOfPState_ =
+        (decltype(getMinMaxClockOfPState_))  GetProcAddress(dll_, "nvmlDeviceGetMinMaxClockOfPState");
     getName_            = (decltype(getName_))           GetProcAddress(dll_, "nvmlDeviceGetName");
 
     elevated_ = processElevated();
@@ -232,7 +234,17 @@ bool GpuPower::setGpuClockLock(unsigned mhz) {
         LOG_ERROR("gpu", "无法锁定 GPU 频率 %uMHz: 需要管理员权限", mhz);
         return false;
     }
-    int rc = setLockedClocks_(dev_, mhz, mhz);
+    // 下限取硬件的 P0 最低频率: 目标值只做"上限", 低负载时允许驱动降频省电。
+    // 读不到范围或驱动不接受时, 退回旧行为 min=max。
+    int lo = minGpuClockMhz();
+    if (lo < 0 || lo > (int)mhz) lo = (int)mhz;
+
+    int rc = setLockedClocks_(dev_, (unsigned)lo, mhz);
+    if (rc != 0 && lo != (int)mhz) {
+        LOG_WARN("gpu", "带下限的锁频失败 (code=%d), 退回 min=max 重试", rc);
+        rc = setLockedClocks_(dev_, mhz, mhz);
+        lo = (int)mhz;
+    }
     if (rc != 0) {
         const char* hint = "";
         if (rc == 3)      hint = " (该笔记本/驱动不支持锁定 GPU 频率)";
@@ -241,7 +253,11 @@ bool GpuPower::setGpuClockLock(unsigned mhz) {
         LOG_ERROR("gpu", "锁定 GPU 频率 %uMHz 失败, code=%d%s", mhz, rc, hint);
         return false;
     }
-    LOG_INFO("gpu", "GPU 核心频率已锁定为 %uMHz", mhz);
+    if (lo != (int)mhz)
+        LOG_INFO("gpu", "GPU 核心频率上限已锁定为 %uMHz (下限 %dMHz, 低负载可降频)",
+                 mhz, lo);
+    else
+        LOG_INFO("gpu", "GPU 核心频率已锁定为 %uMHz", mhz);
     return true;
 }
 
@@ -274,6 +290,14 @@ int GpuPower::maxGpuClockMhz() {
     return (int)mhz;
 }
 
+int GpuPower::minGpuClockMhz() {
+    if (!dev_ || !getMinMaxClockOfPState_) return -1;
+    unsigned mn = 0, mx = 0;
+    // type = 0 (GRAPHICS), pstate = 0 (P0)
+    if (getMinMaxClockOfPState_(dev_, 0, 0, &mn, &mx) != 0) return -1;
+    return mn > 0 ? (int)mn : -1;
+}
+
 // ---- 能力探测 ----
 // 只做"写入相同值"的无副作用探测, 返回原始错误码供 --diagnose 展示。
 
@@ -286,7 +310,12 @@ int GpuPower::probePowerLimit(unsigned watts) {
 int GpuPower::probeClockLock(unsigned mhz) {
     if (!dev_ || !setLockedClocks_) return -1;
     if (!elevated_) return -2;
-    return setLockedClocks_(dev_, mhz, mhz);
+    int lo = minGpuClockMhz();
+    if (lo < 0 || lo > (int)mhz) lo = (int)mhz;
+    int rc = setLockedClocks_(dev_, (unsigned)lo, mhz);
+    if (rc != 0 && lo != (int)mhz)
+        rc = setLockedClocks_(dev_, mhz, mhz);
+    return rc;
 }
 
 int GpuPower::probeClockReset() {
@@ -331,6 +360,7 @@ void GpuPower::shutdown() {
     resetLockedClocks_ = nullptr;
     getClockInfo_ = nullptr;
     getMaxClockInfo_ = nullptr;
+    getMinMaxClockOfPState_ = nullptr;
     getName_ = nullptr;
     dev_ = nullptr;
     elevated_ = false;

@@ -49,6 +49,7 @@ void printUsage() {
         "  --cpu-step <%%>         CPU 每次降档的百分点 (默认 5)\n"
         "  --no-cpu-step           不把 CPU 当作降档杠杆(只压 GPU)\n"
         "  --prefer-cpu            降档先动 CPU, 再动 GPU (默认反过来)\n"
+        "  --prefer-auto           按近期 CPU/GPU 功率占比自动选择先动哪个杠杆\n"
         "  --gpu-clock <MHz>       锁定 GPU 核心频率 (功耗上限不可用时的替代)\n"
         "  --min-gpu-clock <MHz>   锁频降档下限 (默认 800)\n"
         "  --gpu-clock-pct <%%>     按最大核心频率的百分比锁频 (换机器不用改数值)\n"
@@ -169,6 +170,10 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             profile_.cpuPowerStep = false;
         } else if (a == "--prefer-cpu") {
             profile_.preferCpu = true;
+            profile_.preferAuto = false;
+        } else if (a == "--prefer-auto") {
+            profile_.preferAuto = true;
+            profile_.preferCpu = false;
         } else if (matchOpt(i, a, "gpu-clock", v)) {
             profile_.gpuClockMhz = parseInt(v, profile_.gpuClockMhz);
         } else if (matchOpt(i, a, "min-gpu-clock", v)) {
@@ -340,7 +345,10 @@ void PowerGuardApp::applyConfigChange(const ConfigChange& c) {
         if (c.cpuMinPct >= 0)         p.cpuMinPct = c.cpuMinPct;
         if (c.cpuStepPct >= 0)        p.cpuStepPct = c.cpuStepPct;
         if (c.cpuPowerStep >= 0)      p.cpuPowerStep = c.cpuPowerStep != 0;
-        if (c.preferCpu >= 0)         p.preferCpu = c.preferCpu != 0;
+        if (c.preferCpu >= 0) {
+            p.preferCpu = c.preferCpu != 0;
+            p.preferAuto = false;      // 网页手动指定优先序后关掉自动
+        }
         if (c.batteryThresholdW >= 0) p.batteryThresholdW = c.batteryThresholdW;
         if (c.deficitEnergyWh >= 0)   p.deficitEnergyWh = c.deficitEnergyWh;
         if (c.deficitWindowSec >= 0)  p.deficitWindowSec = c.deficitWindowSec;
@@ -547,8 +555,9 @@ int PowerGuardApp::run() {
                  (profile_.applyAlways || !monitor_.configured())
                      ? "立即生效" : "仅目标进程运行时生效");
 
-        LOG_INFO("ctl", "降档杠杆: %s优先%s, CPU 步进 %d%%",
-                 profile_.preferCpu ? "CPU" : "GPU",
+        LOG_INFO("ctl", "降档杠杆: %s%s, CPU 步进 %d%%",
+                 profile_.preferAuto ? "按负载自动选择"
+                                     : (profile_.preferCpu ? "CPU 优先" : "GPU 优先"),
                  profile_.cpuPowerStep ? "" : " (CPU 不参与降档)",
                  profile_.cpuStepPct);
 
@@ -708,7 +717,7 @@ void PowerGuardApp::setProfileForGame(const std::string& game) {
                  used.c_str(), game.empty() ? "" : " 对应 ",
                  game.empty() ? "" : (game + ".exe").c_str(),
                  gpuText.c_str(), profile_.cpuMaxPct,
-                 profile_.preferCpu ? "CPU" : "GPU");
+                 profile_.preferAuto ? "自动" : (profile_.preferCpu ? "CPU" : "GPU"));
     }
 }
 
@@ -763,12 +772,18 @@ void PowerGuardApp::sampleOnce() {
         }
     }
 
+    // 功率占比供 prefer=auto 选杠杆: 指数平滑, 避免单帧抖动改变顺序
+    double c = cpu_.read();
+    double g = gpu_.read();
+    if (c >= 0 && g >= 0 && c + g > 1.0) {
+        double share = c / (c + g);
+        cpuShare_ = cpuShare_ < 0 ? share : cpuShare_ * 0.9 + share * 0.1;
+    }
+
     // 闭环控制必须在 --only-running 提前返回之前执行:
     // 游戏退出时也要能恢复设置。
     updateControl(targetRunning, bat);
 
-    double c = cpu_.read();
-    double g = gpu_.read();
     publishWebStatus(c, g, bat, targetRunning);
 
     // --only-running: 目标不在跑就不记录功率;
@@ -1195,9 +1210,16 @@ void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) 
                     return true;
                 };
 
-                // 默认 GPU 优先; profiles.ini 的 prefer=cpu 或网页开关可改成 CPU 优先。
+                // 默认 GPU 优先; profiles.ini 的 prefer=cpu 或网页开关可改成 CPU 优先;
+                // prefer=auto 按近期功率占比决定: CPU 占大头就先动 CPU。
+                bool cpuFirst = profile_.preferCpu;
+                if (profile_.preferAuto) {
+                    cpuFirst = cpuShare_ >= 0.0 && cpuShare_ >= 0.5;
+                    LOG_INFO("ctl", "自动杠杆: CPU 占 %.0f%%, 先动 %s",
+                             cpuShare_ * 100.0, cpuFirst ? "CPU" : "GPU");
+                }
                 bool stepped = false;
-                if (profile_.preferCpu) {
+                if (cpuFirst) {
                     stepped = stepCpu();
                     if (!stepped) stepped = stepGpu();
                 } else {

@@ -23,6 +23,7 @@ struct ControlProfile {
     int  cpuStepPct = 5;         // CPU 每次降/升的百分点
     bool cpuPowerStep = true;    // CPU 是否作为降档杠杆; false = 只压 GPU
     bool preferCpu = false;      // 降档先动 CPU (适合 CPU 才是有效杠杆的游戏)
+    bool preferAuto = false;     // 按近期 CPU/GPU 功率占比自动选先动哪个杠杆
 
     // 锁频: 功耗上限被厂商 EC 锁死时, 用锁定核心频率代替
     int  gpuClockMhz = 0;        // >0 = 显式启用锁频并以此为初始/上限频率

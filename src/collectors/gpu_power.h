@@ -45,10 +45,12 @@ public:
 
     // ---- GPU 锁频 (功耗上限被厂商 EC 锁死时的替代杠杆) ----
     bool hasClockControl() const { return dev_ && setLockedClocks_ && resetLockedClocks_; }
-    bool setGpuClockLock(unsigned mhz);    // 把核心频率锁在 mhz; 需要管理员
+    // 把核心频率上限设为 mhz, 下限尽量交给驱动 (允许低负载降频); 需要管理员
+    bool setGpuClockLock(unsigned mhz);
     bool resetGpuClockLock();              // 解除锁定, 恢复驱动自动调频
     int  currentGpuClockMhz();             // 当前核心频率, 失败 -1
     int  maxGpuClockMhz();                 // 允许的最大核心频率, 失败 -1
+    int  minGpuClockMhz();                 // 允许的最低核心频率 (P0), 失败 -1
 
     // ---- 能力探测 (--diagnose) ----
     // 返回 NVML 原始错误码: 0 = 成功, 正数 = NVML 错误, -1 = 无 API, -2 = 未提权。
@@ -76,6 +78,7 @@ private:
     int  (*resetLockedClocks_)(nvmlDevice_t) = nullptr;
     int  (*getClockInfo_)(nvmlDevice_t, int, unsigned*) = nullptr;
     int  (*getMaxClockInfo_)(nvmlDevice_t, int, unsigned*) = nullptr;
+    int  (*getMinMaxClockOfPState_)(nvmlDevice_t, int, int, unsigned*, unsigned*) = nullptr;
     int  (*getName_)(nvmlDevice_t, char*, unsigned) = nullptr;
 
     nvmlDevice_t dev_ = nullptr;

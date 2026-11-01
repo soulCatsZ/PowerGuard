@@ -100,6 +100,7 @@ private:
     ULONGLONG          lastStepDown_ = 0;     // 降档冷却
     ULONGLONG          lastFloorWarn_ = 0;    // 降档下限日志节流
     double             deficitEnergyWh_ = 0;  // 缺口能量积分(Wh)
+    double             cpuShare_ = -1;        // CPU 占 CPU+GPU 功率的比例(平滑), -1=未知
     std::string        pendingAction_;      // 写入下一行 CSV 的 action 列
     bool               forceCsv_ = false;
     bool               restoreOnly_ = false;   // --restore
