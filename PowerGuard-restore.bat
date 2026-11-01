@@ -1,17 +1,15 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-
-rem ============================================================
-rem  Emergency restore: put GPU limit / GPU clocks / CPU max
-rem  state back to the values saved before PowerGuard applied
-rem  them. Use this after a crash or a hard power-off.
-rem ============================================================
+rem
+rem  Put GPU limit / GPU clocks / CPU max state back to the values saved
+rem  before PowerGuard applied them. Run this after a crash or a hard
+rem  power-off.
+rem
 
 set "EXE=bin\PowerGuard.exe"
-
 if not exist "%EXE%" (
-    echo [ERROR] %EXE% not found. Build it first with build.sh
+    echo [ERROR] %EXE% not found. Run build.sh first.
     pause
     exit /b 1
 )
@@ -21,6 +19,10 @@ if not errorlevel 1 goto run
 
 echo Requesting administrator privileges...
 powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+if errorlevel 1 (
+    echo [ERROR] Elevation cancelled.
+    pause
+)
 exit /b 0
 
 :run

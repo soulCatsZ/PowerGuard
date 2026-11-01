@@ -33,6 +33,11 @@
   无法把带引号的参数传给 `.bat`（点了“是”也只是静默什么都不发生），
   不加引号又会在路径含空格时被截断。改为把目标进程名写进临时文件、
   只传一个无引号标记参数，提权后再读回。
+- `PowerGuard-recovery-task.bat remove` 提权后没有任何效果（同一原因：
+  `-ArgumentList '%*'` 带引号传给 `.bat` 会被丢弃），改为显式传单个 token。
+- 三个 `.bat` 统一为纯 ASCII + CRLF 并精简注释；
+  `PowerGuard-recovery-task.ps1` 改为 UTF-8 with BOM，避免 PowerShell 5.1
+  按 ANSI/GBK 解读导致中文输出乱码。
 
 ### 变更
 
