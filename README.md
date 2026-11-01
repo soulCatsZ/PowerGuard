@@ -81,10 +81,13 @@ PowerGuard 的判据只有一句话：
 ```bash
 ./build.sh                                  # 自动收集 src/**/*.cpp，产物是单文件 exe
 ./bin/PowerGuard.exe --diagnose             # 换机器先探测（只读，不需要管理员）
-PowerGuard.bat Cyberpunk2077.exe            # 自动提权 + 调用 + 开网页控制台
+PowerGuard.bat                              # 双击后直接输入游戏进程名
+PowerGuard.bat Cyberpunk2077.exe            # 也可以从命令行/拖拽传入
 ```
 
-`PowerGuard.bat` 实际以 `--profile usbc --web --process <游戏> --only-running` 运行，
+不带参数启动时会提示输入进程名（`.exe` 可省略，进程还没启动也没关系，它跑起来才
+开始控制；直接回车则只记录功率、不做控制）。随后自动提权并以
+`--profile usbc --web --process <游戏> --only-running` 运行，
 启动后浏览器打开 <http://127.0.0.1:8080>。
 
 ### 命令行
@@ -193,7 +196,7 @@ GPU 用 `nvmlDeviceGetPowerUsage`；电池方向优先用 `IOCTL_BATTERY_QUERY_S
 PowerGuard/
 ├── build.sh / scripts/package.sh   # 编译 / 发布打包
 ├── .github/workflows/build.yml     # CI 构建；打 v* 标签时自动发布
-├── PowerGuard.bat                  # 快捷启动（传游戏名，自动提权）
+├── PowerGuard.bat                  # 快捷启动（双击输入游戏名，自动提权）
 ├── PowerGuard-restore.bat          # 快捷恢复
 ├── PowerGuard-recovery-task.*      # 登录时清理残留限制的计划任务
 ├── profiles.ini                    # 分游戏参数
