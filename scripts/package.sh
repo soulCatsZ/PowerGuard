@@ -27,8 +27,7 @@ mkdir -p "$STAGE/bin"
 
 cp bin/PowerGuard.exe "$STAGE/bin/"
 cp README.md CHANGELOG.md LICENSE CONTRIBUTING.md profiles.ini "$STAGE/"
-cp PowerGuard.bat PowerGuard-restore.bat \
-   PowerGuard-recovery-task.bat PowerGuard-recovery-task.ps1 "$STAGE/"
+cp PowerGuard.bat PowerGuard-restore.bat "$STAGE/"
 
 rm -f "$ZIP"
 if command -v zip >/dev/null 2>&1; then

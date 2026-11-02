@@ -85,14 +85,17 @@ PowerGuard 的判据只有一句话：
 ```bash
 ./build.sh                                  # 自动收集 src/**/*.cpp，产物是单文件 exe
 ./bin/PowerGuard.exe --diagnose             # 换机器先探测（只读，不需要管理员）
-PowerGuard.bat                              # 双击后直接输入游戏进程名
-PowerGuard.bat Cyberpunk2077.exe            # 也可以从命令行/拖拽传入
+PowerGuard.bat                              # 双击启动（使用上次记住的游戏）
+PowerGuard.bat Cyberpunk2077.exe            # 拖拽/命令行传入，并记住这个目标
 ```
 
-不带参数启动时会提示输入进程名（`.exe` 可省略，进程还没启动也没关系，它跑起来才
-开始控制；直接回车则只记录功率、不做控制）。随后自动提权并以
-`--profile usbc --web --process <游戏> --only-running` 运行，
-启动后浏览器打开 <http://127.0.0.1:8080>。
+双击时会使用上次记住的游戏进程名；第一次使用、还没记住目标时会提示输入一次
+（也可以直接把游戏 exe 拖到 `PowerGuard.bat` 上）。输入或拖入的目标会记住，
+之后双击即可一键启动。目标已设置时会自动请求管理员权限，并以
+`--profile usbc --web --process <游戏> --only-running` 运行。
+`PowerGuard.bat --clear` 清除记住的目标。
+记住的目标保存在 `%LOCALAPPDATA%\PowerGuard\launcher_target.txt`。
+启动后在浏览器访问 <http://127.0.0.1:8080>。
 
 ### 命令行
 
@@ -102,7 +105,7 @@ PowerGuard.bat Cyberpunk2077.exe            # 也可以从命令行/拖拽传入
 ./bin/PowerGuard.exe --profile usbc --dry-run --apply-always # 只看策略，不改系统
 ./bin/PowerGuard.exe --profile usbc --budget 80 --process bg3.exe  # 无电池预算模式
 ./bin/PowerGuard.exe --restore                               # 恢复原始设置
-./bin/PowerGuard.exe --restore-if-stale                      # 只清理残留（登录任务用）
+./bin/PowerGuard.exe --restore-if-stale                      # 只清理残留（可配登录任务调用）
 ./bin/PowerGuard.exe --diagnose-validate                     # 探测 + 写权限实测（管理员）
 ./bin/PowerGuard.exe --version
 ```
@@ -160,11 +163,11 @@ prefer = gpu
 
 ## 无人值守的安全网
 
-- **状态文件**：应用前把原始值写到 `%LOCALAPPDATA%\PowerGuard\control_state.txt` 并记录 PID。
+- **状态文件**：应用前把原始值写到 `%LOCALAPPDATA%\PowerGuard\control_state.txt` 并记录 PID；
+  写入失败时本次直接不应用，避免出现“改了却无法恢复”的窗口。
 - **正常/异常退出恢复**：`quit`、Ctrl+C、关窗口、注销、关机事件都会先恢复再退出。
 - **`--restore` / `PowerGuard-restore.bat`**：一键恢复。
-- **`--restore-if-stale` + 登录计划任务**（`PowerGuard-recovery-task.bat`）：
-  蓝屏/断电后下次登录自动清掉残留限制。
+- **`--restore-if-stale`**：只清理属于已退出进程的残留状态，可自行配置登录计划任务调用。
 - **单实例互斥**；状态文件被占用时**暂停控制而非覆盖**，保证唯一原始值副本不丢。
 
 ---
@@ -189,6 +192,8 @@ GPU 用 `nvmlDeviceGetPowerUsage`；电池方向优先用 `IOCTL_BATTERY_QUERY_S
 - 只支持 **NVIDIA GPU**（NVML）。AMD/Intel 会在 `--diagnose` 中明确显示"GPU 不可用"，
   此时仍可用 CPU 杠杆或预算模式。
 - 不同机器 GPU 能力差异大：先 `--diagnose` / `--diagnose-validate` 确认哪个杠杆可写。
+- 若驱动读不出**请求的功耗上限**（部分笔记本只暴露含 Dynamic Boost 的 enforced 值），
+  PowerGuard 不会写功耗上限，改用锁频 / CPU，避免恢复时把用户设置改低。
 - 限功耗不改硬件、不是降压超频，重启后设置自然消失。
 - 场景变化是**被动响应**，不做帧级预测；`profiles.ini` 只存起点，不写回学习结果。
 
@@ -199,10 +204,10 @@ GPU 用 `nvmlDeviceGetPowerUsage`；电池方向优先用 `IOCTL_BATTERY_QUERY_S
 ```text
 PowerGuard/
 ├── build.sh / scripts/package.sh   # 编译 / 发布打包
+├── tests/run_tests.sh              # 纯逻辑单元测试（CI 也会跑）
 ├── .github/workflows/build.yml     # CI 构建；打 v* 标签时自动发布
-├── PowerGuard.bat                  # 快捷启动（双击输入游戏名，自动提权）
+├── PowerGuard.bat                  # 一键启动（记住上次游戏，自动提权）
 ├── PowerGuard-restore.bat          # 快捷恢复
-├── PowerGuard-recovery-task.*      # 登录时清理残留限制的计划任务
 ├── profiles.ini                    # 分游戏参数
 ├── bin/                            # 编译产物
 ├── logs/                           # 日志与 CSV（程序自动创建）
@@ -220,12 +225,13 @@ PowerGuard/
 
 ## 验证建议
 
-1. `--diagnose` 确认杠杆与电池信号，需要写权限时用管理员跑 `--diagnose-validate`。
-2. `--dry-run --apply-always` 确认参数解析与原始值读取正常。
-3. 普通权限 `--apply-always`：CPU 设 99%，退出后恢复 100%。
-4. 管理员跑同一条：用 `nvidia-smi -q -d POWER` 对照 GPU 走的是上限还是锁频。
-5. 游戏内看 CSV：`battery_w` 应逐步降到阈值附近，`action` 出现 `step_down` / `step_up`。
-6. 任务管理器强杀后重启：确认残留限制被识别并恢复。
+1. `bash tests/run_tests.sh`：纯逻辑单元测试（功率去抖 / profiles.ini 解析 / 参数归一）。
+2. `--diagnose` 确认杠杆与电池信号，需要写权限时用管理员跑 `--diagnose-validate`。
+3. `--dry-run --apply-always` 确认参数解析与原始值读取正常。
+4. 普通权限 `--apply-always`：CPU 设 99%，退出后恢复 100%。
+5. 管理员跑同一条：用 `nvidia-smi -q -d POWER` 对照 GPU 走的是上限还是锁频。
+6. 游戏内看 CSV：`battery_w` 应逐步降到阈值附近，`action` 出现 `step_down` / `step_up`。
+7. 任务管理器强杀后重启：确认残留限制被识别并恢复。
 
 ---
 
