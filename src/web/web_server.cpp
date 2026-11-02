@@ -292,8 +292,11 @@ const char kHtml[] = R"HTML(
   --warn-soft:rgba(255,159,10,.14);--warn-fill:#ff9f0a;
   --ok-soft:rgba(48,209,88,.14);--bad-soft:rgba(255,69,58,.12);
   --ease:cubic-bezier(.22,1,.36,1);
-  --bg-img:radial-gradient(1100px 560px at 15% -12%,rgba(10,132,255,.18),transparent 62%),
-           radial-gradient(900px 520px at 105% 10%,rgba(94,92,230,.14),transparent 60%);
+  --blob-a:rgba(10,132,255,.20);
+  --blob-b:rgba(94,92,230,.18);
+  --blob-c:rgba(175,82,222,.14);
+  --grid-line:rgba(255,255,255,.07);
+  --spot:rgba(10,132,255,.20);
 }
 html[data-theme="light"]{
   --bg:#f2f2f7;--island:rgba(255,255,255,.72);--panel:rgba(255,255,255,.66);
@@ -306,19 +309,58 @@ html[data-theme="light"]{
   --track:rgba(120,120,128,.24);--accent-soft:rgba(0,122,255,.10);
   --warn-soft:rgba(255,159,10,.16);--warn-fill:#ff9f0a;
   --ok-soft:rgba(36,138,61,.10);--bad-soft:rgba(215,0,21,.08);
-  --bg-img:radial-gradient(1100px 560px at 15% -12%,rgba(10,132,255,.16),transparent 62%),
-           radial-gradient(900px 520px at 105% 10%,rgba(175,82,222,.12),transparent 60%);
+  --blob-a:rgba(0,122,255,.14);
+  --blob-b:rgba(94,92,230,.11);
+  --blob-c:rgba(175,82,222,.09);
+  --grid-line:rgba(60,60,67,.08);
+  --spot:rgba(0,122,255,.14);
 }
 html{color-scheme:dark;background:var(--bg)}
 html[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
 ::selection{background:rgba(10,132,255,.35);color:var(--txt)}
 body{
-  margin:0;min-height:100vh;background:var(--bg);background-image:var(--bg-img);
-  background-attachment:fixed;color:var(--txt);
+  margin:0;min-height:100vh;background:var(--bg);color:var(--txt);
   font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,
        "PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased;transition:background-color .3s,color .3s;
+}
+
+/* ---- 背景动效: 极光光斑 + 极淡网格 + 鼠标光晕 ---- */
+.bg-fx{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.bg-fx i{
+  position:absolute;display:block;width:50vmax;height:50vmax;border-radius:50%;
+  filter:blur(72px);will-change:transform;
+  animation:drift 40s ease-in-out infinite alternate;
+}
+.bg-fx .b1{left:-18vmax;top:-20vmax;background:var(--blob-a)}
+.bg-fx .b2{right:-20vmax;top:-10vmax;background:var(--blob-b);
+  animation-duration:52s;animation-delay:-14s}
+.bg-fx .b3{left:28%;bottom:-28vmax;background:var(--blob-c);
+  animation-duration:60s;animation-delay:-28s}
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.45;
+  background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);
+  background-size:56px 56px;
+  -webkit-mask-image:radial-gradient(ellipse at 50% 0,#000 0%,transparent 72%);
+  mask-image:radial-gradient(ellipse at 50% 0,#000 0%,transparent 72%);
+}
+.bg-spot{
+  position:fixed;left:0;top:0;width:520px;height:520px;z-index:0;
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,var(--spot),transparent 68%);
+  transform:translate3d(calc(var(--mx,50vw) - 50%),
+                       calc(var(--my,30vh) - 50%),0);
+  transition:transform .12s linear;
+}
+main,footer{position:relative;z-index:1}
+html.bg-paused .bg-fx i{animation-play-state:paused}
+
+@keyframes drift{
+  0%  {transform:translate3d(0,0,0) scale(1)}
+  50% {transform:translate3d(5vw,4vh,0) scale(1.08)}
+  100%{transform:translate3d(-4vw,7vh,0) scale(.97)}
 }
 
 /* ---- 悬浮胶囊顶栏 ---- */
@@ -657,6 +699,11 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
 </style>
 </head>
 <body>
+<div class="bg-fx" aria-hidden="true">
+  <i class="b1"></i><i class="b2"></i><i class="b3"></i>
+</div>
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="bg-spot" aria-hidden="true"></div>
 <header>
   <div class="brand"><span class="logo">PG</span><h1>PowerGuard</h1></div>
   <div class="badges">
@@ -1300,6 +1347,26 @@ function onFilterKey(e){
   });
 })();
 
+/* 鼠标光晕: 只在支持悬停的设备上跟随; 降低动态效果时保持静止。 */
+(function attachBgSpot(){
+  var reduce = window.matchMedia &&
+               window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (reduce && reduce.matches) return;
+  var root = document.documentElement;
+  var frame = 0, mx = 0, my = 0;
+  function paint(){
+    frame = 0;
+    root.style.setProperty('--mx', mx + 'px');
+    root.style.setProperty('--my', my + 'px');
+  }
+  window.addEventListener('pointermove', function(e){
+    if (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen') return;
+    mx = e.clientX;
+    my = e.clientY;
+    if (!frame) frame = requestAnimationFrame(paint);
+  }, {passive:true});
+})();
+
 function startPolling(){
   if (pollTimer) return;
   tick();
@@ -1311,6 +1378,7 @@ function stopPolling(){
   pollTimer = null;
 }
 document.addEventListener('visibilitychange', function(){
+  document.documentElement.classList.toggle('bg-paused', document.hidden);
   if (document.hidden) stopPolling(); else startPolling();
 });
 
