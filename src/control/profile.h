@@ -51,4 +51,7 @@ struct ControlProfile {
     int  holdUpSec = 300;            // 稳定多久才回升
 };
 
+// 参数范围归一: 命令行、profiles.ini、网页修改共用, 保证运行期数值合法。
+void normalizeProfile(ControlProfile& p);
+
 } // namespace pg

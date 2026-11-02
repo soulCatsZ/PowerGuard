@@ -32,14 +32,15 @@ public:
     // 可以真正写入: 有函数 + 已提权 (NVML 设置上限要求管理员, 否则返回 4)
     bool hasPowerLimitControl() const { return hasLimitApi() && elevated_; }
     bool setPowerLimitW(unsigned watts);   // 需要管理员权限; 失败写日志
-    int  powerLimitW();                    // 当前上限 (读不到时退回 enforced), 失败 -1
+    int  powerLimitW();                    // 展示用 (读不到请求值时退回 enforced), 失败 -1
     int  requestedPowerLimitW();           // 驱动记录的请求上限; 不支持返回 -1
     int  enforcedPowerLimitW();            // 驱动实际生效的上限, 失败 -1
     int  defaultPowerLimitW();             // 默认上限, 失败 -1
     int  minPowerLimitW();                 // 允许的最小上限, 失败 -1
     int  maxPowerLimitW();                 // 允许的最大上限, 失败 -1
 
-    void saveOriginalPowerLimit();         // 只保存第一次读到的原始值
+    // 只保存第一次读到的"请求上限"; 读不到则保持 -1 (不用 enforced 代替)
+    void saveOriginalPowerLimit();
     int  originalPowerLimitW() const { return originalLimitW_; }
     bool restorePowerLimit();              // 恢复到 saveOriginal 时的值
 

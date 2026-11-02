@@ -230,48 +230,6 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
     monitor_.setTarget(target_);
 }
 
-void PowerGuardApp::normalizeProfile(ControlProfile& p) {
-    // 参数校验/归一下
-    if (p.gpuLimitW < 5)   p.gpuLimitW = 5;
-    if (p.gpuLimitW > 250) p.gpuLimitW = 250;
-    if (p.minGpuW < 5)     p.minGpuW = 5;
-    if (p.minGpuW > p.gpuLimitW) p.minGpuW = p.gpuLimitW;
-    if (p.maxGpuW <= 0)    p.maxGpuW = p.gpuLimitW;
-    if (p.maxGpuW < p.gpuLimitW) p.maxGpuW = p.gpuLimitW;
-    if (p.cpuMaxPct < 5)   p.cpuMaxPct = 5;
-    if (p.cpuMaxPct > 100) p.cpuMaxPct = 100;
-    if (p.cpuMinPct < 5)   p.cpuMinPct = 5;
-    if (p.cpuMinPct > p.cpuMaxPct) p.cpuMinPct = p.cpuMaxPct;
-    if (p.cpuStepPct < 1)  p.cpuStepPct = 1;
-    if (p.cpuStepPct > 50) p.cpuStepPct = 50;
-    if (p.inputBudgetW < 0)   p.inputBudgetW = 0;
-    if (p.inputBudgetW > 1000) p.inputBudgetW = 1000;
-    if (p.batteryThresholdW < 0) p.batteryThresholdW = 0;
-    if (p.deficitEnergyWh < 0) p.deficitEnergyWh = 0;
-    if (p.deficitWindowSec < 5) p.deficitWindowSec = 5;
-    if (p.stepCooldownSec < 0) p.stepCooldownSec = 0;
-    if (p.stepW < 1)       p.stepW = 1;
-    if (p.holdDownSec < 1) p.holdDownSec = 1;
-    if (p.holdUpSec < 1)   p.holdUpSec = 1;
-    if (p.gpuClockMhz < 0) p.gpuClockMhz = 0;
-    if (p.minGpuClockMhz < 100) p.minGpuClockMhz = 100;
-    if (p.clockStepMhz < 10)    p.clockStepMhz = 10;
-    if (p.autoClockMhz < p.minGpuClockMhz)
-        p.autoClockMhz = p.minGpuClockMhz;
-    if (p.gpuClockMhz > 0 && p.minGpuClockMhz > p.gpuClockMhz)
-        p.minGpuClockMhz = p.gpuClockMhz;
-
-    // 百分比时基: 1-100; 下限不能高于目标
-    if (p.gpuClockPct < 0)     p.gpuClockPct = 0;
-    if (p.gpuClockPct > 100)   p.gpuClockPct = 100;
-    if (p.minGpuClockPct < 0)  p.minGpuClockPct = 0;
-    if (p.minGpuClockPct > 100) p.minGpuClockPct = 100;
-    if (p.autoClockPct < 0)    p.autoClockPct = 0;
-    if (p.autoClockPct > 100)  p.autoClockPct = 100;
-    if (p.gpuClockPct > 0 && p.minGpuClockPct > p.gpuClockPct)
-        p.minGpuClockPct = p.gpuClockPct;
-}
-
 // ============================================================
 // Web 控制台
 // ============================================================
@@ -926,12 +884,14 @@ void PowerGuardApp::applyControl() {
     usedGpuClock_ = false;
     appliedGpuClockMhz_ = -1;
 
-    // ---- GPU ----
-    if (profile_.controlGpu) {
-        bool done = false;
+    // ---- 1. 只读取原始值/决定杠杆, 此时还不碰系统 ----
+    bool planGpuPower = false;
+    bool planGpuClock = false;
+    bool planCpu = false;
 
+    if (profile_.controlGpu) {
         if (profile_.gpuClockMhz > 0) {
-            done = applyGpuClock(profile_.gpuClockMhz);        // 显式锁频
+            planGpuClock = true;
         } else if (!gpu_.hasPowerLimitControl()) {
             if (gpu_.hasLimitApi() && !gpu_.isElevated())
                 LOG_WARN("ctl", "未提权, 无法限制 GPU (需以管理员身份运行)");
@@ -940,9 +900,61 @@ void PowerGuardApp::applyControl() {
         } else {
             gpu_.saveOriginalPowerLimit();
             originalGpuW_ = gpu_.originalPowerLimitW();
-            if (originalGpuW_ < 0) {
-                LOG_WARN("ctl", "读取原始 GPU 功耗上限失败");
-            } else if (profile_.dryRun) {
+            if (originalGpuW_ < 0)
+                LOG_WARN("ctl", "读取原始 GPU 功耗上限失败, 不写功耗上限");
+            else
+                planGpuPower = true;
+        }
+    }
+
+    if (profile_.controlCpu) {
+        if (!cpuLimit_.open()) {
+            LOG_WARN("ctl", "CPU 电源设置不可用, 跳过 CPU 控制");
+        } else {
+            originalCpuPct_ = cpuLimit_.originalMaxState();
+            planCpu = true;
+        }
+    }
+
+    // ---- 2. 写系统前先把原始值落盘; 落盘失败就不应用 ----
+    // 这样即使刚写完限制就崩溃, --restore / 下次启动仍有原始值可用。
+    auto savePreState = [&](int gpuAppliedW, int gpuClockMhz) {
+        ControlState pre;
+        pre.pid = GetCurrentProcessId();
+        pre.gpuOriginalW = originalGpuW_;
+        pre.cpuOriginalPct = originalCpuPct_;
+        pre.gpuAppliedW = gpuAppliedW;
+        pre.cpuAppliedPct = planCpu ? profile_.cpuMaxPct : -1;
+        pre.gpuClockMhz = gpuClockMhz;
+        pre.timestamp = currentDate() + " " + nowTime();
+        return saveControlState(pre);
+    };
+
+    bool preSaved = false;
+    if (!profile_.dryRun && (planGpuPower || planGpuClock || planCpu)) {
+        int gpuW = planGpuPower ? profile_.gpuLimitW : -1;
+        int gpuMhz = planGpuClock ? profile_.gpuClockMhz : -1;
+        if (!savePreState(gpuW, gpuMhz)) {
+            LOG_ERROR("ctl", "写入状态文件失败 (%s), 为保护原始值本次不应用控制; "
+                             "检查目录权限后点\"立即应用\"重试",
+                      controlStatePath().string().c_str());
+            cpuLimit_.close();
+            controlApplied_ = false;
+            controlPaused_ = true;
+            LOG_WARN("ctl", "自动控制已暂停; 修复后点\"立即应用\"或重启重试");
+            return;
+        }
+        preSaved = true;
+    }
+
+    // ---- 3. GPU ----
+    if (profile_.controlGpu) {
+        bool done = false;
+
+        if (planGpuClock) {
+            done = applyGpuClock(profile_.gpuClockMhz);        // 显式锁频
+        } else if (planGpuPower) {
+            if (profile_.dryRun) {
                 LOG_INFO("ctl", "[DRY-RUN] 将 GPU 上限 %dW -> %dW",
                          originalGpuW_, profile_.gpuLimitW);
                 gpuControlOk_ = true;
@@ -955,43 +967,54 @@ void PowerGuardApp::applyControl() {
             }
         }
 
-        // 功耗上限写不进去(笔记本 TGP 常由 EC 托管, 返回 3)时, 退化为锁频
+        // 功耗上限写不进去(笔记本 TGP 常由 EC 托管, 返回 3)时, 退化为锁频。
+        // 锁频前也要先把状态文件切成"将锁频", 否则锁频后立刻崩溃时,
+        // 恢复逻辑只会尝试写回功耗上限, 漏掉解锁。
         if (!done && profile_.gpuClockMhz == 0 && profile_.gpuClockAuto
             && gpu_.hasClockControl() && gpu_.isElevated()) {
-            LOG_WARN("ctl", "GPU 功耗上限不可用, 自动退化为锁定核心频率 %dMHz",
-                     profile_.autoClockMhz);
-            done = applyGpuClock(profile_.autoClockMhz);
+            bool canFallback = true;
+            if (!profile_.dryRun) {
+                if (savePreState(-1, profile_.autoClockMhz))
+                    preSaved = true;
+                else {
+                    LOG_ERROR("ctl", "更新状态文件失败, 不锁定 GPU 频率");
+                    canFallback = false;
+                }
+            }
+            if (canFallback) {
+                LOG_WARN("ctl", "GPU 功耗上限不可用, 自动退化为锁定核心频率 %dMHz",
+                         profile_.autoClockMhz);
+                done = applyGpuClock(profile_.autoClockMhz);
+            }
         }
 
         if (!done && !gpuControlOk_)
             LOG_WARN("ctl", "GPU 控制不可用, 本局只做 CPU 控制");
     }
 
-    // ---- CPU ----
-    if (profile_.controlCpu) {
-        if (!cpuLimit_.open()) {
-            LOG_WARN("ctl", "CPU 电源设置不可用, 跳过 CPU 控制");
+    // ---- 4. CPU ----
+    if (planCpu) {
+        if (profile_.dryRun) {
+            LOG_INFO("ctl", "[DRY-RUN] 将 CPU 最大状态 %d%% -> %d%%",
+                     originalCpuPct_, profile_.cpuMaxPct);
+            cpuControlOk_ = true;
+            appliedCpuPct_ = originalCpuPct_;
+        } else if (cpuLimit_.setMaxState(profile_.cpuMaxPct)) {
+            cpuControlOk_ = true;
+            appliedCpuPct_ = profile_.cpuMaxPct;
         } else {
-            originalCpuPct_ = cpuLimit_.originalMaxState();
-            if (profile_.dryRun) {
-                LOG_INFO("ctl", "[DRY-RUN] 将 CPU 最大状态 %d%% -> %d%%",
-                         originalCpuPct_, profile_.cpuMaxPct);
-                cpuControlOk_ = true;
-                appliedCpuPct_ = originalCpuPct_;
-            } else if (cpuLimit_.setMaxState(profile_.cpuMaxPct)) {
-                cpuControlOk_ = true;
-                appliedCpuPct_ = profile_.cpuMaxPct;
-            } else {
-                LOG_WARN("ctl", "CPU 限频失败, 本局只做 GPU 控制");
-            }
+            LOG_WARN("ctl", "CPU 限频失败, 本局只做 GPU 控制");
         }
     }
 
+    // ---- 5. 收尾: 用实际生效值更新状态文件 ----
     if (!gpuControlOk_ && !cpuControlOk_) {
         if (profile_.dryRun) {
             LOG_INFO("ctl", "[DRY-RUN] GPU/CPU 均不可控制");
         } else {
             LOG_ERROR("ctl", "GPU/CPU 控制均失败, 本次未应用任何设置");
+            if (preSaved) removeControlState();   // 没写成任何限制, 不需要恢复
+            cpuLimit_.close();
             controlApplied_ = false;
             return;
         }
@@ -1004,7 +1027,9 @@ void PowerGuardApp::applyControl() {
         st.cpuAppliedPct = cpuControlOk_ ? appliedCpuPct_ : -1;
         st.gpuClockMhz = (gpuControlOk_ && usedGpuClock_) ? appliedGpuClockMhz_ : -1;
         st.timestamp = currentDate() + " " + nowTime();
-        saveControlState(st);
+        // 这里失败也不致命: 第 2 步写入的原始值备份仍然有效。
+        if (!saveControlState(st))
+            LOG_ERROR("ctl", "更新状态文件失败, 仍保留应用前写入的原始值备份");
     }
 
     std::string gpuText = !gpuControlOk_ ? "未控制"

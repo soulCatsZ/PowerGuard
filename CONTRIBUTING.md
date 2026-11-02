@@ -21,15 +21,18 @@
 
 ## 测试
 
-项目目前没有单元测试，提交前请至少完成：
+提交前请至少完成：
 
 1. `./build.sh` 编译无警告（允许平台 API 的弃用提示）。
-2. `PowerGuard.exe --diagnose` 输出正常，非管理员下 GPU 显示“需要管理员”而非“不可用”。
-3. `PowerGuard.exe --profile usbc --dry-run --apply-always` 启动后输入 `quit`，
+2. `bash tests/run_tests.sh` 单元测试通过（`PowerChangeTracker`、`profiles.ini`
+   解析、参数归一）。
+3. `PowerGuard.exe --diagnose` 输出正常，非管理员下 GPU 显示“需要管理员”而非“不可用”。
+4. `PowerGuard.exe --profile usbc --dry-run --apply-always` 启动后输入 `quit`，
    确认参数解析、原始值读取、退出恢复正常。
-4. 改动控制逻辑时，额外跑一次 `--budget` 或真实电池场景，确认降档/回升日志符合预期。
+5. 改动控制逻辑时，额外跑一次 `--budget` 或真实电池场景，确认降档/回升日志符合预期。
 
-涉及真实硬件写入的测试请自行承担风险，先用 `--dry-run` 验证。
+涉及真实硬件写入的测试请自行承担风险，先用 `--dry-run` 验证。新增纯逻辑模块时，
+请在 `tests/test_main.cpp` 里补用例，并保证 `tests/run_tests.sh` 可重复运行。
 
 ## 代码约定
 

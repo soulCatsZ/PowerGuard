@@ -162,8 +162,8 @@ int GpuPower::requestedPowerLimitW() {
 int GpuPower::powerLimitW() {
     int w = requestedPowerLimitW();
     if (w >= 0) return w;
-    // 读不到请求值时退回到 GetEnforcedPowerLimit: 它是驱动实际生效的上限,
-    // 会受 Dynamic Boost 影响, 用于"原始值"备份和展示足够。
+    // 仅供展示/诊断: enforced 值会受 Dynamic Boost 影响, 不是用户请求的原始值,
+    // 绝不能拿它做恢复备份 (见 saveOriginalPowerLimit)。
     return enforcedPowerLimitW();
 }
 
@@ -213,12 +213,15 @@ int GpuPower::maxPowerLimitW() {
 
 void GpuPower::saveOriginalPowerLimit() {
     if (originalLimitW_ >= 0) return;                      // 只保存第一次
-    int w = powerLimitW();
+    // 只认"请求上限"。读不到时不能退回 enforced: 后者含 Dynamic Boost/EC 调整,
+    // 回写可能把用户原本更高的设置永久改低。宁可放弃功耗上限这个杠杆。
+    int w = requestedPowerLimitW();
     if (w >= 0) {
         originalLimitW_ = w;
         LOG_INFO("gpu", "已保存原始 GPU 功耗上限 %dW", w);
     } else {
-        LOG_WARN("gpu", "读取原始 GPU 功耗上限失败, 退出时将无法自动恢复");
+        LOG_WARN("gpu", "读不到原始 GPU 请求上限; 为不覆盖用户设置, "
+                        "本次不写功耗上限 (将尝试锁频)");
     }
 }
 

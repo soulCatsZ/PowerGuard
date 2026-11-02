@@ -40,6 +40,7 @@ bool saveControlState(const ControlState& st) {
         std::ofstream out(tmp, std::ios::trunc);
         if (!out) {
             LOG_WARN("ctl", "写入状态文件失败: %s", path.string().c_str());
+            std::filesystem::remove(tmp, ec);
             return false;
         }
         out << "pid=" << st.pid << "\n"
@@ -51,10 +52,13 @@ bool saveControlState(const ControlState& st) {
             << "timestamp=" << st.timestamp << "\n";
     }
 
-    std::filesystem::remove(path, ec);                // Windows 下 rename 不覆盖
-    std::filesystem::rename(tmp, path, ec);
-    if (ec) {
-        LOG_WARN("ctl", "替换状态文件失败: %s", ec.message().c_str());
+    // MoveFileEx 覆盖式替换: 避免"先删后改名"在两步之间留下没有任何备份的窗口。
+    if (!MoveFileExW(tmp.c_str(), path.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DWORD err = GetLastError();
+        LOG_WARN("ctl", "替换状态文件失败 (GetLastError=%lu): %s",
+                 (unsigned long)err, path.string().c_str());
+        std::filesystem::remove(tmp, ec);
         return false;
     }
     return true;

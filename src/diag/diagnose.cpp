@@ -250,7 +250,8 @@ int runDiagnose(bool validate) {
     printf("权限   : %s\n", admin ? "管理员" : "普通用户 (GPU 控制需要管理员)");
     printf("探测   : %s\n", validate
         ? (controlling ? "检测到正在运行的 PowerGuard, 写探测已跳过"
-                       : "读写实测 (写入相同值)")
+                       : (!admin ? "只读实测 (GPU 写入需要管理员, 仅实测 CPU)"
+                                 : "读写实测 (写入相同值)"))
         : "只读");
 
     SYSTEM_POWER_STATUS sp{};
@@ -263,6 +264,7 @@ int runDiagnose(bool validate) {
     GpuPower gpu;
     bool gpuOk = gpu.open();
     int gpuMaxClock = -1;
+    int gpuRequestedW = -1;
     bool gpuPowerApi = false, gpuClockApi = false;
     int powerCode = INT_MIN, lockCode = INT_MIN, resetCode = INT_MIN;
 
@@ -284,6 +286,7 @@ int runDiagnose(bool validate) {
         printf("  当前功耗     : %.1f W\n", watts);
 
         int req = gpu.requestedPowerLimitW();
+        gpuRequestedW = req;
         int enf = gpu.enforcedPowerLimitW();
         int def = gpu.defaultPowerLimitW();
         int mn  = gpu.minPowerLimitW();
@@ -299,8 +302,10 @@ int runDiagnose(bool validate) {
         gpuClockApi = gpu.hasClockControl();
 
         if (validate && admin && !controlling) {
-            int cur = gpu.powerLimitW();
-            if (cur > 0 && gpuPowerApi) powerCode = gpu.probePowerLimit((unsigned)cur);
+            // 写探测必须写入"原来的请求值"。请求值读不到时不要拿 enforced 顶替,
+            // 否则探测本身就可能把用户设置改低。
+            if (gpuRequestedW > 0 && gpuPowerApi)
+                powerCode = gpu.probePowerLimit((unsigned)gpuRequestedW);
             if (curClock > 0 && gpuClockApi) {
                 lockCode = gpu.probeClockLock((unsigned)curClock);
                 if (lockCode == 0) resetCode = gpu.probeClockReset();
@@ -317,6 +322,7 @@ int runDiagnose(bool validate) {
         else if (!admin)             powerText = "未提权 (以管理员运行才能写)";
         else if (powerCode != INT_MIN)
             powerText = powerCode == 0 ? "可写 (实测)" : "不可写 (实测)";
+        else if (gpuRequestedW <= 0) powerText = "无法安全实测 (读不到原始请求上限)";
         else                         powerText = "未验证 (加 --diagnose-validate 实测)";
 
         const char* clockText;
@@ -389,9 +395,12 @@ int runDiagnose(bool validate) {
     bool clockUsable   = (lockCode == 0);
     bool clockBlocked  = (lockCode != INT_MIN && lockCode != 0);
     bool gpuApiPresent = gpuPowerApi || gpuClockApi;
-    // 有 API 但还没实测: 不能断言"不可用", 只能标未验证
+    // 有 API 但还没实测: 不能断言"不可用", 只能标未验证。
+    // 原始请求值读不到时功耗上限无法安全实测, 不算"待验证"。
+    bool powerTestable = gpuPowerApi && gpuRequestedW > 0;
     bool gpuUnverified = gpuOk && gpuApiPresent &&
-                         (powerCode == INT_MIN || lockCode == INT_MIN);
+                         ((powerTestable && powerCode == INT_MIN) ||
+                          (gpuClockApi && lockCode == INT_MIN));
 
     const char* powerState =
         !gpuOk ? "不可用 (无 NVIDIA GPU)"
@@ -399,6 +408,7 @@ int runDiagnose(bool validate) {
         : powerBlocked ? "不可写 (驱动拒绝)"
         : !gpuPowerApi ? "NVML 无此函数"
         : !admin ? "需要管理员"
+        : gpuRequestedW <= 0 ? "无法安全实测 (原始请求值不可读)"
         : "未验证";
 
     const char* clockState =

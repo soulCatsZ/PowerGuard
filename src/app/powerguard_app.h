@@ -44,7 +44,6 @@ private:
     void applyConfigChange(const ConfigChange& c);
     void publishWebStatus(double cpuW, double gpuW, const BatterySample& bat,
                           bool targetRunning);
-    static void normalizeProfile(ControlProfile& p);  // 参数范围归一
 
     // ---- USB-C 100W 闭环控制 ----
     void applyControl();                                  // 应用上限并保存原始值
