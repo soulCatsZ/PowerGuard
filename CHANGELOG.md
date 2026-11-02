@@ -3,6 +3,34 @@
 本项目采用 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### 修复
+
+- 控制应用前先把原始值写入状态文件；写入失败则本次不应用，避免出现“已经改了
+  限制、但恢复备份还没落盘”的窗口。状态文件替换改用 `MoveFileEx` 覆盖，
+  减少先删后改名导致备份丢失的风险。
+- GPU 功耗上限的原始值只采用 NVML 的“请求上限”；读不到时不再回退到含
+  Dynamic Boost/EC 调整的 enforced 值，避免恢复时把用户设置改低。读不到原始值时
+  放弃功耗上限杠杆，改为锁频/CPU 控制。
+- `--diagnose-validate` 的写探测同样只在请求值可读时执行，避免探测本身改低上限；
+  非管理员时的标题明确为“仅实测 CPU”。
+
+### 新增
+
+- `tests/` 纯逻辑单元测试：`PowerChangeTracker`、`profiles.ini` 解析、参数归一。
+  `tests/run_tests.sh` 可重复运行，CI 已接入。
+- `PowerGuard.bat` 一键启动：记住上次拖入/命令行传入的游戏进程，之后双击直接
+  启动；没有目标时提示输入一次。新增 `--clear`，目标保存在
+  `%LOCALAPPDATA%\PowerGuard\launcher_target.txt`。
+
+### 变更
+
+- 移除登录恢复任务辅助脚本 `PowerGuard-recovery-task.bat/.ps1`，打包脚本与文档
+  同步去掉引用；`--restore` / `--restore-if-stale` 仍保留，可自行配置登录计划任务。
+- Web 控制台界面刷新：进程列表改为可搜索、可用键盘操作的下拉选择器；增加
+  入场/悬停/加载动效与骨架屏，并遵循 `prefers-reduced-motion`。
+
 ## [0.4.0] - 2026-11-01
 
 ### 新增

@@ -282,31 +282,37 @@ const char kHtml[] = R"HTML(
 <style>
 :root{
   --bg:#000;--island:rgba(28,28,30,.72);--panel:rgba(28,28,30,.62);
-  --field:rgba(118,118,128,.18);--solid:#1c1c1e;--line:rgba(255,255,255,.10);
+  --field:rgba(118,118,128,.18);--field-hover:rgba(118,118,128,.26);
+  --solid:#1c1c1e;--line:rgba(255,255,255,.10);
   --txt:#f5f5f7;--dim:#98989f;--hover:rgba(255,255,255,.06);
   --accent:#0a84ff;--ok:#30d158;--warn:#ff9f0a;--bad:#ff453a;
   --ring:0 0 0 3px rgba(10,132,255,.25);
   --shadow:0 18px 50px rgba(0,0,0,.55);--shadow-soft:0 8px 24px rgba(0,0,0,.35);
   --track:rgba(120,120,128,.34);--accent-soft:rgba(10,132,255,.14);
   --warn-soft:rgba(255,159,10,.14);--warn-fill:#ff9f0a;
+  --ok-soft:rgba(48,209,88,.14);--bad-soft:rgba(255,69,58,.12);
+  --ease:cubic-bezier(.22,1,.36,1);
   --bg-img:radial-gradient(1100px 560px at 15% -12%,rgba(10,132,255,.18),transparent 62%),
            radial-gradient(900px 520px at 105% 10%,rgba(94,92,230,.14),transparent 60%);
 }
 html[data-theme="light"]{
   --bg:#f2f2f7;--island:rgba(255,255,255,.72);--panel:rgba(255,255,255,.66);
-  --field:rgba(118,118,128,.12);--solid:#fff;--line:rgba(60,60,67,.14);
+  --field:rgba(118,118,128,.12);--field-hover:rgba(118,118,128,.19);
+  --solid:#fff;--line:rgba(60,60,67,.14);
   --txt:#1c1c1e;--dim:#6e6e73;--hover:rgba(0,0,0,.045);
   --accent:#007aff;--ok:#248a3d;--warn:#b25000;--bad:#d70015;
   --ring:0 0 0 3px rgba(0,122,255,.20);
   --shadow:0 18px 50px rgba(31,35,41,.16);--shadow-soft:0 8px 24px rgba(31,35,41,.10);
   --track:rgba(120,120,128,.24);--accent-soft:rgba(0,122,255,.10);
   --warn-soft:rgba(255,159,10,.16);--warn-fill:#ff9f0a;
+  --ok-soft:rgba(36,138,61,.10);--bad-soft:rgba(215,0,21,.08);
   --bg-img:radial-gradient(1100px 560px at 15% -12%,rgba(10,132,255,.16),transparent 62%),
            radial-gradient(900px 520px at 105% 10%,rgba(175,82,222,.12),transparent 60%);
 }
 html{color-scheme:dark;background:var(--bg)}
 html[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
+::selection{background:rgba(10,132,255,.35);color:var(--txt)}
 body{
   margin:0;min-height:100vh;background:var(--bg);background-image:var(--bg-img);
   background-attachment:fixed;color:var(--txt);
@@ -322,6 +328,7 @@ header{
   background:var(--island);border:1px solid var(--line);border-radius:28px;
   backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);
   box-shadow:var(--shadow);transition:background .3s,border-color .3s;
+  animation:drop .5s var(--ease) backwards;
 }
 .brand{display:flex;align-items:center;gap:9px}
 .logo{
@@ -338,25 +345,31 @@ h1{font-size:15px;font-weight:600;margin:0;letter-spacing:-.01em}
   transition:background .25s,color .25s;
 }
 .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.85}
-.badge.on{background:rgba(48,209,88,.16);color:var(--ok)}
-.badge.warn{background:rgba(255,159,10,.16);color:var(--warn)}
-.badge.bad{background:rgba(255,69,58,.15);color:var(--bad)}
+.badge.on{background:var(--ok-soft);color:var(--ok)}
+.badge.on::before{animation:dotPulse 2.2s ease-in-out infinite}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.bad{background:var(--bad-soft);color:var(--bad)}
 
 /* ---- 主题切换按钮 ---- */
 button{
   font:inherit;font-size:13px;font-weight:500;color:var(--txt);background:var(--field);
   border:1px solid var(--line);border-radius:999px;padding:9px 18px;cursor:pointer;
-  transition:transform .12s ease,background .2s,border-color .2s,box-shadow .2s;white-space:nowrap;
+  transition:transform .16s var(--ease),background .2s,border-color .2s,box-shadow .2s,color .2s;
+  white-space:nowrap;
 }
-button:hover{border-color:var(--accent)}
-button:active{transform:scale(.96)}
+button:hover{border-color:var(--accent);transform:translateY(-1px)}
+button:active{transform:translateY(0) scale(.97)}
+button:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 button.primary{
   background:var(--accent);border-color:transparent;color:#fff;font-weight:600;
   box-shadow:0 8px 22px rgba(10,132,255,.30);
 }
+button.primary:hover{box-shadow:0 12px 28px rgba(10,132,255,.40)}
 button.danger{color:var(--bad);border-color:rgba(255,69,58,.35);background:rgba(255,69,58,.10)}
+button.danger:hover{border-color:var(--bad);background:var(--bad-soft)}
 .icon-btn{width:38px;height:38px;padding:0;border-radius:50%;display:grid;place-items:center;flex:none}
-.icon-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s var(--ease)}
+.icon-btn:hover svg{transform:rotate(-10deg)}
 html[data-theme="dark"] #ico-sun{display:none}
 html[data-theme="light"] #ico-moon{display:none}
 
@@ -366,8 +379,22 @@ main{max-width:1060px;margin:0 auto;padding:18px 20px 8px}
 .metric{
   background:var(--panel);border:1px solid var(--line);border-radius:28px;padding:16px 18px;
   backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:var(--shadow-soft);
-  transition:background .3s,border-color .3s;
+  transition:transform .25s var(--ease),background .3s,border-color .25s,box-shadow .25s;
+  animation:rise .55s var(--ease) backwards;
 }
+.metric:nth-child(1){animation-delay:.03s}
+.metric:nth-child(2){animation-delay:.07s}
+.metric:nth-child(3){animation-delay:.11s}
+.metric:nth-child(4){animation-delay:.15s}
+.metric:hover{transform:translateY(-3px);border-color:rgba(10,132,255,.24);box-shadow:var(--shadow)}
+.metric-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.metric-ico{
+  width:32px;height:32px;border-radius:11px;display:grid;place-items:center;flex:none;
+  background:var(--field);color:var(--dim);
+  transition:color .25s,background .25s,transform .25s var(--ease);
+}
+.metric:hover .metric-ico{color:var(--accent);background:var(--accent-soft);transform:translateY(-1px)}
+.metric-ico svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .k{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .big{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.2;margin-top:4px;font-variant-numeric:tabular-nums}
 .big.text{font-size:22px}
@@ -378,10 +405,23 @@ main{max-width:1060px;margin:0 auto;padding:18px 20px 8px}
   background:var(--panel);border:1px solid var(--line);border-radius:30px;
   padding:20px 22px;margin-top:14px;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
   box-shadow:var(--shadow-soft);transition:background .3s,border-color .3s;
+  animation:rise .6s var(--ease) backwards;
 }
+section.panel:nth-of-type(1){animation-delay:.08s}
+section.panel:nth-of-type(2){animation-delay:.14s}
+section.panel:nth-of-type(3){animation-delay:.20s}
 .panel-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.panel-head h3{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}
+.panel-head h3{
+  display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;
+  letter-spacing:-.01em;margin:0;
+}
+.panel-head h3::before{
+  content:"";width:3px;height:14px;border-radius:2px;flex:none;
+  background:linear-gradient(180deg,var(--accent),#5e5ce6);opacity:.9;
+}
 .hint{font-size:12px;color:var(--dim)}
+.hint.live{display:inline-flex;align-items:center;gap:6px}
+.hint.live::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);animation:dotPulse 2.2s ease-in-out infinite}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
 .stat{background:var(--field);border-radius:22px;padding:14px 16px;transition:background .3s}
 .stat .v{font-size:26px;font-weight:600;letter-spacing:-.01em;line-height:1.25;margin-top:2px;font-variant-numeric:tabular-nums}
@@ -391,20 +431,24 @@ main{max-width:1060px;margin:0 auto;padding:18px 20px 8px}
 .group{margin-top:16px}
 .group:first-of-type{margin-top:0}
 .group h4{
+  display:flex;align-items:center;gap:6px;
   font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
   color:var(--dim);margin:0 0 8px;padding-left:6px;
 }
+.group h4::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);opacity:.75;flex:none}
 .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .field{
   background:var(--field);border:1px solid transparent;border-radius:18px;padding:8px 14px 9px;
-  transition:border-color .2s,box-shadow .2s,background .3s;
+  transition:border-color .2s,box-shadow .2s,background .2s;
 }
-.field:focus-within{border-color:var(--accent);box-shadow:var(--ring)}
+.field:hover{background:var(--field-hover)}
+.field:focus-within{border-color:var(--accent);box-shadow:var(--ring);background:var(--field)}
 .field label{display:block;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .field input,.field select{
   width:100%;border:0;background:transparent;color:var(--txt);font:inherit;font-size:15px;
-  font-weight:500;padding:2px 0;outline:none;font-variant-numeric:tabular-nums;
+  font-weight:500;padding:2px 0;outline:none;font-variant-numeric:tabular-nums;caret-color:var(--accent);
 }
+.field input::placeholder{color:var(--dim)}
 .field select{
   appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:18px;
   background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%2398989f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>") right center no-repeat;
@@ -416,7 +460,7 @@ main{max-width:1060px;margin:0 auto;padding:18px 20px 8px}
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   cursor:pointer;user-select:none;-webkit-user-select:none;padding-top:10px;padding-bottom:10px;
 }
-.toggle:hover{border-color:rgba(128,128,128,.4)}
+.toggle:hover{border-color:rgba(128,128,128,.4);background:var(--field-hover)}
 .toggle:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 .toggle .tval{font-size:15px;font-weight:500;margin-top:2px;transition:color .2s}
 .toggle.on{background:var(--accent-soft);border-color:rgba(10,132,255,.28)}
@@ -437,32 +481,134 @@ main{max-width:1060px;margin:0 auto;padding:18px 20px 8px}
 
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
 
-/* ---- 进程 ---- */
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
-.row .field.grow{flex:1 1 260px}
-.row2{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
-.search{
-  flex:1 1 220px;background:var(--field);border:1px solid var(--line);border-radius:999px;
-  padding:9px 16px;color:var(--txt);font:inherit;outline:none;
-  transition:border-color .2s,box-shadow .2s;
+/* ---- 进程选择器 ---- */
+.panel-proc{position:relative;z-index:3}
+.proc-picker{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.combo-wrap{flex:1 1 320px;min-width:0}
+.combo-label{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);margin:0 0 6px 4px}
+.combo-label span{opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.combo{position:relative}
+.combo-field{
+  display:flex;align-items:center;gap:10px;min-height:50px;padding:6px 6px 6px 12px;
+  background:var(--field);border:1px solid var(--line);border-radius:16px;
+  transition:border-color .2s,box-shadow .2s,background .2s;
 }
-.search:focus{border-color:var(--accent);box-shadow:var(--ring)}
-.scroll{
-  margin-top:10px;max-height:320px;overflow:auto;border:1px solid var(--line);
-  border-radius:22px;background:var(--field);
+.combo-field:hover{background:var(--field-hover)}
+.combo-field:focus-within,.combo.open .combo-field{
+  border-color:var(--accent);box-shadow:var(--ring);background:var(--field);
 }
-.scroll::-webkit-scrollbar{width:10px;height:10px}
-.scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;border:3px solid transparent;background-clip:content-box}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line)}
-tr:last-child td{border-bottom:0}
-th{
-  font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600;
-  position:sticky;top:0;background:var(--solid);z-index:1;
+.combo-glyph{
+  width:30px;height:30px;border-radius:10px;display:grid;place-items:center;flex:none;
+  background:var(--accent-soft);color:var(--accent);transition:transform .25s var(--ease);
 }
-tbody tr:hover{background:var(--hover)}
-td button{padding:5px 12px;font-size:12px}
-td.num{font-variant-numeric:tabular-nums;color:var(--dim)}
+.combo.open .combo-glyph{transform:scale(1.04)}
+.combo-glyph svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.combo-field input{
+  flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--txt);
+  font:inherit;font-size:15px;font-weight:500;padding:8px 0;letter-spacing:-.01em;
+  caret-color:var(--accent);
+}
+.combo-field input::placeholder{color:var(--dim);font-weight:400}
+.combo-toggle{
+  width:34px;height:34px;padding:0;border-radius:12px;border:1px solid transparent;
+  display:grid;place-items:center;flex:none;background:transparent;color:var(--dim);
+  box-shadow:none;
+}
+.combo-toggle:hover{background:var(--hover);border-color:transparent;color:var(--txt);transform:none}
+.combo-toggle svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .25s var(--ease)}
+.combo.open .combo-toggle{color:var(--accent);background:var(--accent-soft)}
+.combo.open .combo-toggle svg{transform:rotate(180deg)}
+
+.combo-menu{
+  position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:6;
+  background:var(--solid);border:1px solid var(--line);border-radius:20px;
+  box-shadow:var(--shadow);overflow:hidden;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translateY(-7px) scale(.985);transform-origin:top center;
+  transition:opacity .18s var(--ease),transform .22s var(--ease),visibility 0s .22s,border-color .3s,background .3s;
+}
+.combo.open .combo-menu{
+  opacity:1;visibility:visible;pointer-events:auto;
+  transform:translateY(0) scale(1);
+  transition:opacity .18s var(--ease),transform .22s var(--ease),visibility 0s 0s;
+}
+.combo-search{
+  display:flex;align-items:center;gap:8px;padding:9px 10px 9px 13px;
+  border-bottom:1px solid var(--line);background:var(--field);
+  transition:background .2s;
+}
+.combo-search:focus-within{background:var(--field-hover)}
+.combo-search > svg{width:15px;height:15px;flex:none;color:var(--dim);fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.combo-search input{
+  flex:1;min-width:0;border:0;outline:none;background:transparent;color:var(--txt);
+  font:inherit;font-size:13px;padding:5px 0;caret-color:var(--accent);
+}
+.combo-search input::placeholder{color:var(--dim)}
+.combo-refresh{
+  width:30px;height:30px;padding:0;border-radius:9px;display:grid;place-items:center;flex:none;
+  background:transparent;border:1px solid transparent;color:var(--dim);box-shadow:none;
+}
+.combo-refresh:hover{background:var(--hover);border-color:transparent;color:var(--txt);transform:none}
+.combo-refresh svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s var(--ease)}
+.combo.loading .combo-refresh{pointer-events:none;opacity:.55}
+.combo.loading .combo-refresh svg{animation:spin .9s linear infinite}
+
+.combo-list{
+  max-height:min(340px,48vh);overflow:auto;overscroll-behavior:contain;
+  padding:6px;display:flex;flex-direction:column;gap:2px;
+}
+.combo-list::-webkit-scrollbar{width:10px;height:10px}
+.combo-list::-webkit-scrollbar-thumb{
+  background:var(--track);border-radius:999px;border:3px solid transparent;background-clip:content-box;
+}
+.combo-list::-webkit-scrollbar-thumb:hover{background:var(--dim);background-clip:content-box}
+.proc-row{
+  display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;
+  border:0;border-radius:13px;background:transparent;color:var(--txt);text-align:left;
+  cursor:pointer;font:inherit;box-shadow:none;
+  transition:background .16s,box-shadow .16s;
+}
+.proc-row:hover{background:var(--hover);border-color:transparent;transform:none;box-shadow:none}
+.proc-row.active{background:var(--hover);box-shadow:inset 0 0 0 1px var(--line)}
+.proc-row.selected{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.proc-row.selected:hover{background:var(--accent-soft);border-color:transparent}
+.proc-row.enter{animation:procIn .26s var(--ease) backwards}
+.proc-avatar{
+  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;
+  font-size:12px;font-weight:700;color:var(--accent);
+  background:linear-gradient(135deg,rgba(10,132,255,.22),rgba(94,92,230,.16));
+}
+html[data-theme="light"] .proc-avatar{
+  background:linear-gradient(135deg,rgba(0,122,255,.14),rgba(94,92,230,.10));
+}
+.proc-meta{min-width:0;flex:1;display:flex;flex-direction:column;gap:1px}
+.proc-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proc-pid{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.proc-check{
+  width:18px;height:18px;flex:none;color:var(--accent);
+  opacity:0;transform:scale(.72);transition:opacity .16s,transform .18s var(--ease);
+}
+.proc-check::after{
+  content:"";display:block;width:5px;height:9px;margin:-2px auto 0;
+  border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg);
+}
+.proc-row.selected .proc-check{opacity:1;transform:none}
+.combo-empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:13px}
+.combo-empty .empty-ico{width:26px;height:26px;display:block;margin:0 auto 8px;opacity:.45;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.combo-empty button{margin-top:10px;padding:7px 15px;font-size:12px}
+.combo-foot{
+  display:flex;justify-content:space-between;gap:10px;align-items:center;
+  padding:8px 12px;border-top:1px solid var(--line);
+  font-size:11px;color:var(--dim);background:var(--field);
+}
+.combo-foot span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.combo-tip{white-space:nowrap;flex:none}
+.combo-actions{display:flex;gap:8px;flex-wrap:wrap}
+.skel{
+  height:38px;margin:2px 4px;border-radius:12px;
+  background:linear-gradient(90deg,var(--field) 0%,var(--field-hover) 50%,var(--field) 100%);
+  background-size:200% 100%;animation:shimmer 1.4s linear infinite;
+}
 
 footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);font-size:12px;text-align:center}
 
@@ -471,12 +617,43 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
   position:fixed;left:50%;bottom:26px;z-index:50;pointer-events:none;
   transform:translate(-50%,16px);opacity:0;transition:opacity .2s,transform .25s;
   background:var(--solid);border:1px solid var(--line);border-radius:999px;
-  padding:10px 20px;font-size:13px;box-shadow:var(--shadow);white-space:nowrap;max-width:90vw;
-  overflow:hidden;text-overflow:ellipsis;
+  padding:10px 20px 10px 32px;font-size:13px;box-shadow:var(--shadow);
+  white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis;
 }
+#msg::before{
+  content:"";position:absolute;left:16px;top:50%;width:7px;height:7px;border-radius:50%;
+  background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft);transform:translateY(-50%);
+}
+#msg.err::before{background:var(--bad);box-shadow:0 0 0 3px var(--bad-soft)}
 #msg.show{opacity:1;transform:translate(-50%,0)}
 
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes drop{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes procIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes dotPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}
+  50%{box-shadow:0 0 0 4px rgba(48,209,88,.14)}
+}
+
+@media (max-width:640px){
+  header{top:6px;margin:6px 8px 0;border-radius:24px;padding:7px 8px 7px 14px}
+  main{padding:12px 10px 8px}
+  .panel{padding:16px;border-radius:24px;margin-top:10px}
+  .metric{padding:14px 16px;border-radius:24px}
+  .big{font-size:28px}
+  .hero{gap:8px}
+  .fields{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+  .combo-wrap{flex-basis:100%}
+  .combo-actions{width:100%}
+  .combo-actions button{flex:1 1 0}
+  .combo-tip{display:none}
+  footer{padding:12px 16px 24px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
 </style>
 </head>
 <body>
@@ -489,7 +666,7 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
     <span id="b-paused" class="badge warn" style="display:none">已暂停</span>
   </div>
   <span class="spacer"></span>
-  <button id="theme-btn" class="icon-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">
+  <button id="theme-btn" class="icon-btn" type="button" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">
     <svg id="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a6.8 6.8 0 0 0 10.7 10.7Z"/></svg>
     <svg id="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/></svg>
   </button>
@@ -497,14 +674,26 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
 
 <main>
   <div class="hero">
-    <div class="metric"><div class="k">CPU 功率</div><div class="big" id="v-cpu">--</div><div class="sub">RAPL Energy Meter</div></div>
-    <div class="metric"><div class="k">GPU 功率</div><div class="big" id="v-gpu">--</div><div class="sub" id="s-gpu">NVML</div></div>
-    <div class="metric"><div class="k">电池净功率</div><div class="big" id="v-bat">--</div><div class="sub" id="s-bat">--</div></div>
-    <div class="metric"><div class="k">供电</div><div class="big text" id="v-ac">--</div><div class="sub" id="s-ac">--</div></div>
+    <div class="metric">
+      <div class="metric-top"><div class="k">CPU 功率</div><span class="metric-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/></svg></span></div>
+      <div class="big" id="v-cpu">--</div><div class="sub">RAPL Energy Meter</div>
+    </div>
+    <div class="metric">
+      <div class="metric-top"><div class="k">GPU 功率</div><span class="metric-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M12 9c0-2.2.8-3 2.5-3M15 12c2.2 0 3 .8 3 2.5M12 15c0 2.2-.8 3-2.5 3M9 12c-2.2 0-3-.8-3-2.5"/></svg></span></div>
+      <div class="big" id="v-gpu">--</div><div class="sub" id="s-gpu">NVML</div>
+    </div>
+    <div class="metric">
+      <div class="metric-top"><div class="k">电池净功率</div><span class="metric-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="10" rx="3"/><path d="M22 10v4M6 10v4M10 10v4M14 10v4"/></svg></span></div>
+      <div class="big" id="v-bat">--</div><div class="sub" id="s-bat">--</div>
+    </div>
+    <div class="metric">
+      <div class="metric-top"><div class="k">供电</div><span class="metric-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z"/></svg></span></div>
+      <div class="big text" id="v-ac">--</div><div class="sub" id="s-ac">--</div>
+    </div>
   </div>
 
   <section class="panel">
-    <div class="panel-head"><h3>控制状态</h3><span class="hint">每秒刷新</span></div>
+    <div class="panel-head"><h3>控制状态</h3><span class="hint live">每秒刷新</span></div>
     <div class="stats">
       <div class="stat"><div class="k">CPU 最大状态</div><div class="v" id="v-cpumax">--</div><div class="sub" id="s-cpumax">--</div></div>
       <div class="stat"><div class="k">GPU 上限 / 锁频</div><div class="v" id="v-gpulim">--</div><div class="sub" id="s-gpulim">--</div></div>
@@ -572,25 +761,45 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
     </div></div>
 
     <div class="actions">
-      <button class="primary" onclick="saveCfg()">保存并应用</button>
-      <button onclick="post('/api/apply')">立即应用</button>
-      <button class="danger" onclick="post('/api/restore')">恢复原始设置</button>
+      <button class="primary" type="button" onclick="saveCfg()">保存并应用</button>
+      <button type="button" onclick="send('/api/apply', {}, '已重新应用')">立即应用</button>
+      <button class="danger" type="button" onclick="send('/api/restore', {}, '已恢复原始设置')">恢复原始设置</button>
     </div>
   </section>
 
-  <section class="panel">
-    <div class="panel-head"><h3>进程</h3><span class="hint">点“设为目标”即可切换监控对象</span></div>
-    <div class="row">
-      <div class="field grow"><label for="f-target">监控目标（可手填，自动补 .exe）</label><input id="f-target" type="text" placeholder="Starfield.exe"></div>
-      <button onclick="saveTarget()">设为目标</button>
-      <button onclick="clearTarget()">清除</button>
-    </div>
-    <div class="row2">
-      <input id="proc-filter" class="search" type="text" placeholder="搜索进程…" oninput="renderProcs()">
-      <button onclick="loadProcs()">刷新列表</button>
-    </div>
-    <div class="scroll">
-      <table><thead><tr><th>进程</th><th>PID</th><th></th></tr></thead><tbody id="proc-body"></tbody></table>
+  <section class="panel panel-proc">
+    <div class="panel-head"><h3>进程</h3><span class="hint">点选即切换目标，也可手动输入</span></div>
+    <div class="proc-picker">
+      <div class="combo-wrap">
+        <label class="combo-label" for="f-target">监控目标 <span>可手填，自动补 .exe</span></label>
+        <div class="combo" id="proc-combo">
+          <div class="combo-field">
+            <span class="combo-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg></span>
+            <input id="f-target" type="text" placeholder="选择或输入进程名" autocomplete="off" spellcheck="false">
+            <button id="combo-toggle" class="combo-toggle" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="proc-menu" aria-label="选择进程" title="选择进程">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </div>
+          <div class="combo-menu" id="proc-menu">
+            <div class="combo-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+              <input id="proc-filter" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="proc-list" placeholder="搜索进程…" autocomplete="off" spellcheck="false">
+              <button id="proc-refresh" class="combo-refresh" type="button" aria-label="刷新进程列表" title="刷新进程列表">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+              </button>
+            </div>
+            <div class="combo-list" id="proc-list" role="listbox" aria-label="进程列表"></div>
+            <div class="combo-foot">
+              <span id="proc-count">加载中…</span>
+              <span class="combo-tip">↑↓ 选择 · Enter 确认 · Esc 关闭</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="combo-actions">
+        <button class="primary" type="button" onclick="saveTarget()">设为目标</button>
+        <button class="danger" type="button" onclick="clearTarget()">清除</button>
+      </div>
     </div>
   </section>
 </main>
@@ -601,8 +810,24 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
 var procs = [];
 var cfgSig = '';
 var inflight = false;
+var targetName = '';
+var targetDirty = false;
+var gamePid = 0;
+var visibleProcs = [];
+var activeIndex = -1;
+var menuOpen = false;
+var procsLoading = false;
+var procsError = false;
+var pollTimer = null;
+
+var ICON_SEARCH = '<svg class="empty-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>';
 
 function $(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
 function setText(id, t){ var e = $(id); if (e) e.textContent = t; }
 function isEditing(){
   var a = document.activeElement;
@@ -657,10 +882,11 @@ function flip(id){
   syncToggles();
 }
 
-function msg(t){
+function msg(t, isErr){
   var e = $('msg');
   if (!e) return;
   e.textContent = t;
+  e.classList.toggle('err', !!isErr);
   e.classList.add('show');
   clearTimeout(window._msgTimer);
   window._msgTimer = setTimeout(function(){ e.classList.remove('show'); }, 3000);
@@ -725,10 +951,18 @@ function render(s){
     setText('s-gpulim', s.gpu_control_ok ? '功耗上限已由本程序设置' : '未控制（显示当前生效值）');
   }
 
-  setText('v-target', s.target || '(未设置)');
+  var tgt = s.target || '';
+  var newPid = s.game_pid || 0;
+  var changed = (tgt !== targetName) || (newPid !== gamePid);
+  targetName = tgt;
+  gamePid = newPid;
+  setText('v-target', tgt || '(未设置)');
   setText('s-target', (s.apply_always ? '启动即生效' :
-          (s.target ? '仅目标运行时生效' : '未设置则任何进程都不触发')) +
+          (tgt ? '仅目标运行时生效' : '未设置则任何进程都不触发')) +
           (s.game_profile ? ' · 方案 ' + s.game_profile : ''));
+  var ti = $('f-target');
+  if (ti && !targetDirty && ti.value !== tgt) ti.value = tgt;
+  if (changed && menuOpen) renderProcs();
 
   var cfg = s.cfg;
   var sig = JSON.stringify(cfg) + (s.dry_run ? '1' : '0') + (s.apply_always ? '1' : '0');
@@ -754,7 +988,6 @@ function render(s){
     $('f-always').value = s.apply_always ? '1' : '0';
     $('f-cpu-power-step').value = cfg.cpu_power_step ? '1' : '0';
     $('f-prefer-cpu').value = cfg.prefer_cpu ? '1' : '0';
-    $('f-target').value = s.target;
     syncToggles();
   }
 
@@ -767,7 +1000,18 @@ function post(url, body){
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body || {})
-  }).then(function(r){ return r.json(); });
+  }).then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+function send(url, body, okMsg, onOk){
+  post(url, body).then(function(r){
+    if (okMsg) msg(okMsg);
+    if (onOk) onOk(r);
+  }).catch(function(){
+    msg('操作失败，请重试', true);
+  });
 }
 
 function saveCfg(){
@@ -793,55 +1037,286 @@ function saveCfg(){
     dry_run: +$('f-dry').value,
     apply_always: +$('f-always').value
   };
-  post('/api/config', body).then(function(){
-    msg('参数已保存；控制中会立即重新应用');
+  send('/api/config', body, '参数已保存；控制中会立即重新应用', function(){
     cfgSig = '';
   });
 }
 
-function saveTarget(){
-  var name = $('f-target').value.trim();
-  post('/api/target', {name: name}).then(function(){ msg('监控目标已更新'); });
-}
-
-function clearTarget(){
-  $('f-target').value = '';
-  post('/api/target', {name: ''}).then(function(){ msg('已清除监控目标'); });
-}
-
+/* ---- 进程选择器 ---- */
 function loadProcs(quiet){
+  procsLoading = true;
+  procsError = false;
+  activeIndex = -1;
+  renderProcs();
   fetch('/api/processes', {cache: 'no-store'})
-    .then(function(r){ return r.json(); })
-    .then(function(v){ procs = v; renderProcs(); if (!quiet) msg('进程列表已刷新'); })
-    .catch(function(){ if (!quiet) msg('获取进程列表失败'); });
+    .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(v){
+      procs = Array.isArray(v) ? v : [];
+      procsLoading = false;
+      procsError = false;
+      activeIndex = -1;
+      renderProcs();
+      if (!quiet) msg('进程列表已刷新');
+    })
+    .catch(function(){
+      procsLoading = false;
+      procsError = true;
+      renderProcs();
+      if (!quiet) msg('获取进程列表失败', true);
+    });
 }
 
 function renderProcs(){
-  var q = ($('proc-filter').value || '').toLowerCase();
-  var rows = '';
-  var shown = 0;
-  for (var i = 0; i < procs.length && shown < 400; i++) {
+  var list = $('proc-list');
+  if (!list) return;
+  var combo = $('proc-combo');
+  if (combo) combo.classList.toggle('loading', procsLoading);
+  var count = $('proc-count');
+  var input = $('proc-filter');
+  var q = ((input && input.value) || '').toLowerCase().trim();
+  activeIndex = -1;
+  visibleProcs = [];
+
+  if (procsLoading) {
+    if (count) count.textContent = '加载中…';
+    var sk = '';
+    for (var s = 0; s < 5; s++) sk += '<div class="skel"></div>';
+    list.innerHTML = sk;
+    return;
+  }
+
+  if (procsError) {
+    if (count) count.textContent = '加载失败';
+    list.innerHTML = '<div class="combo-empty">' + ICON_SEARCH +
+      '<div>无法获取进程列表</div>' +
+      '<button class="primary" type="button" onclick="loadProcs()">重试</button></div>';
+    return;
+  }
+
+  var matched = 0;
+  for (var i = 0; i < procs.length; i++) {
     var p = procs[i];
     if (q && p.name.toLowerCase().indexOf(q) < 0) continue;
-    shown++;
-    rows += '<tr><td>' + p.name.replace(/</g, '&lt;') + '</td><td class="num">' + p.pid +
-            '</td><td style="text-align:right"><button onclick="pick(' + i + ')">设为目标</button></td></tr>';
+    matched++;
+    if (visibleProcs.length < 400) visibleProcs.push(i);
   }
-  $('proc-body').innerHTML = rows || '<tr><td colspan="3" style="color:var(--dim)">没有匹配的进程</td></tr>';
+
+  var pidMatch = false;
+  if (gamePid && targetName) {
+    for (var j = 0; j < procs.length; j++) {
+      if (procs[j].pid === gamePid && procs[j].name.toLowerCase() === targetName.toLowerCase()) {
+        pidMatch = true;
+        break;
+      }
+    }
+  }
+
+  var selectedShown = false;
+  var rows = '';
+  for (var k = 0; k < visibleProcs.length; k++) {
+    var idx = visibleProcs[k];
+    var proc = procs[idx];
+    var sel = !selectedShown && !!targetName &&
+              proc.name.toLowerCase() === targetName.toLowerCase() &&
+              (!pidMatch || proc.pid === gamePid);
+    if (sel) selectedShown = true;
+    var initial = esc((proc.name.replace(/\.exe$/i, '').charAt(0) || '?').toUpperCase());
+    var delay = k < 24 ? (k * 14) : 0;
+    rows += '<button type="button" class="proc-row' + (sel ? ' selected' : '') +
+      (k < 24 ? ' enter' : '') + '" role="option" aria-selected="' + (sel ? 'true' : 'false') +
+      '" tabindex="-1" id="proc-opt-' + idx + '" onclick="pick(' + idx + ')"' +
+      ' title="' + esc(proc.name) + '"' +
+      (k < 24 ? ' style="animation-delay:' + delay + 'ms"' : '') + '>' +
+      '<span class="proc-avatar">' + initial + '</span>' +
+      '<span class="proc-meta"><span class="proc-name">' + esc(proc.name) + '</span>' +
+      '<span class="proc-pid">PID ' + (Number(proc.pid) || 0) + '</span></span>' +
+      '<span class="proc-check" aria-hidden="true"></span>' +
+      '</button>';
+  }
+
+  if (!rows) {
+    if (q) {
+      rows = '<div class="combo-empty">' + ICON_SEARCH +
+        '<div>没有匹配的进程</div>' +
+        '<button class="primary" type="button" onclick="clearFilter()">清除筛选</button></div>';
+    } else {
+      rows = '<div class="combo-empty">' + ICON_SEARCH +
+        '<div>进程列表为空</div>' +
+        '<button class="primary" type="button" onclick="loadProcs()">刷新</button></div>';
+    }
+  }
+  list.innerHTML = rows;
+
+  if (count) {
+    var label = q ? ('匹配 ' + matched + ' / 共 ' + procs.length + ' 个')
+                  : ('共 ' + procs.length + ' 个进程');
+    if (matched > visibleProcs.length) label += ' · 仅显示前 ' + visibleProcs.length + ' 个';
+    count.textContent = label;
+  }
+  updateActiveDescendant();
+}
+
+function updateActiveDescendant(){
+  var f = $('proc-filter');
+  if (!f) return;
+  if (menuOpen && activeIndex >= 0 && visibleProcs[activeIndex] !== undefined) {
+    f.setAttribute('aria-activedescendant', 'proc-opt-' + visibleProcs[activeIndex]);
+  } else {
+    f.removeAttribute('aria-activedescendant');
+  }
+}
+
+function setActive(pos){
+  if (!visibleProcs.length) return;
+  if (pos < 0) pos = visibleProcs.length - 1;
+  if (pos >= visibleProcs.length) pos = 0;
+  activeIndex = pos;
+  var rows = $('proc-list') ? $('proc-list').querySelectorAll('.proc-row') : [];
+  for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('active', i === pos);
+  updateActiveDescendant();
+  if (rows[pos] && rows[pos].scrollIntoView) rows[pos].scrollIntoView({block: 'nearest'});
+}
+
+function openMenu(){
+  if (menuOpen) return;
+  menuOpen = true;
+  var c = $('proc-combo');
+  if (c) c.classList.add('open');
+  var b = $('combo-toggle');
+  if (b) { b.setAttribute('aria-expanded', 'true'); b.title = '收起进程列表'; }
+  var f = $('proc-filter');
+  if (f) { f.setAttribute('aria-expanded', 'true'); }
+  renderProcs();
+  var sel = document.querySelector('#proc-list .proc-row.selected');
+  if (sel && sel.scrollIntoView) sel.scrollIntoView({block: 'nearest'});
+  if (f) { f.focus(); if (f.select) f.select(); }
+}
+
+function closeMenu(focusToggle){
+  if (!menuOpen) return;
+  menuOpen = false;
+  var c = $('proc-combo');
+  if (c) c.classList.remove('open');
+  var b = $('combo-toggle');
+  if (b) { b.setAttribute('aria-expanded', 'false'); b.title = '选择进程'; }
+  var f = $('proc-filter');
+  if (f) { f.setAttribute('aria-expanded', 'false'); f.blur(); }
+  activeIndex = -1;
+  updateActiveDescendant();
+  if (focusToggle && b) b.focus();
+}
+
+function toggleMenu(){
+  if (menuOpen) closeMenu(true); else openMenu();
+}
+
+function filterProcs(){
+  activeIndex = -1;
+  renderProcs();
+}
+
+function clearFilter(){
+  var f = $('proc-filter');
+  if (f) { f.value = ''; f.focus(); }
+  activeIndex = -1;
+  renderProcs();
 }
 
 function pick(i){
   var p = procs[i];
-  $('f-target').value = p.name;
-  post('/api/target', {name: p.name}).then(function(){
-    msg('监控目标已设为 ' + p.name);
-  });
+  if (!p) return;
+  targetDirty = false;
+  targetName = p.name;
+  var ti = $('f-target');
+  if (ti) ti.value = p.name;
+  renderProcs();
+  closeMenu(true);
+  send('/api/target', {name: p.name}, '监控目标已设为 ' + p.name);
 }
+
+function saveTarget(){
+  var ti = $('f-target');
+  var name = ti ? ti.value.trim() : '';
+  targetDirty = false;
+  if (!name) { clearTarget(); return; }
+  targetName = name;
+  renderProcs();
+  closeMenu(true);
+  send('/api/target', {name: name}, '监控目标已更新');
+}
+
+function clearTarget(){
+  targetDirty = false;
+  targetName = '';
+  var ti = $('f-target');
+  if (ti) ti.value = '';
+  renderProcs();
+  closeMenu(true);
+  send('/api/target', {name: ''}, '已清除监控目标');
+}
+
+function onTargetKey(e){
+  if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(); }
+  else if (e.key === 'Enter') { e.preventDefault(); saveTarget(); }
+  else if (e.key === 'Escape' && menuOpen) { e.preventDefault(); closeMenu(true); }
+}
+
+function onFilterKey(e){
+  if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIndex + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIndex - 1); }
+  else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+  else if (e.key === 'End') { e.preventDefault(); setActive(visibleProcs.length - 1); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    var pos = activeIndex >= 0 ? activeIndex : 0;
+    if (visibleProcs[pos] !== undefined) pick(visibleProcs[pos]);
+  }
+}
+
+(function attachProcUi(){
+  var toggle = $('combo-toggle');
+  if (toggle) toggle.addEventListener('click', function(e){ e.stopPropagation(); toggleMenu(); });
+
+  var refresh = $('proc-refresh');
+  if (refresh) refresh.addEventListener('click', function(e){ e.stopPropagation(); loadProcs(); });
+
+  var target = $('f-target');
+  if (target) {
+    target.addEventListener('input', function(){ targetDirty = true; });
+    target.addEventListener('keydown', onTargetKey);
+  }
+
+  var filter = $('proc-filter');
+  if (filter) {
+    filter.addEventListener('input', filterProcs);
+    filter.addEventListener('keydown', onFilterKey);
+  }
+
+  document.addEventListener('click', function(e){
+    if (!menuOpen) return;
+    var combo = $('proc-combo');
+    if (combo && !combo.contains(e.target)) closeMenu(false);
+  });
+})();
+
+function startPolling(){
+  if (pollTimer) return;
+  tick();
+  pollTimer = setInterval(tick, 1000);
+}
+function stopPolling(){
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) stopPolling(); else startPolling();
+});
 
 syncToggles();
 loadProcs(true);        /* 打开页面就先填好进程列表 */
-tick();
-setInterval(tick, 1000);
+startPolling();
 </script>
 </body>
 </html>
