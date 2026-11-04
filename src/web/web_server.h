@@ -8,6 +8,7 @@
 //     POST /api/config       修改限功耗参数
 //     POST /api/apply        立即应用
 //     POST /api/restore      恢复原始设置
+//     POST /api/profile      读取/保存/删除 profiles.ini 的某个游戏段
 //   不依赖任何第三方库, 只用 Winsock。
 // ============================================================
 #pragma once
@@ -113,13 +114,33 @@ struct WebCommand {
     ConfigChange  config;
 };
 
+// 网页读/存/删 profiles.ini 里的单个游戏段。
+// 和其它 POST 不同, 这里需要同步返回结果, 才能把校验错误显示在页面上。
+struct ProfileRequest {
+    enum Action { Get, Save, Remove };
+    Action      action = Get;
+    std::string name;       // 段名/进程名, 大小写与 .exe 不敏感
+    std::string content;    // Save 时的段内容 (不含 [section] 行)
+};
+
+struct ProfileResponse {
+    int         code = 200; // HTTP 状态码, 0 视为 200
+    bool        ok = false;
+    bool        found = false;
+    std::string name;       // 归一化后的段名
+    std::string content;
+    std::string error;
+};
+
 class WebServer {
 public:
     using StatusFn  = std::function<WebStatus()>;
     using ProcessFn = std::function<std::vector<ProcInfo>()>;
     using CommandFn = std::function<void(const WebCommand&)>;
+    using ProfileFn = std::function<ProfileResponse(const ProfileRequest&)>;
 
-    WebServer(int port, StatusFn status, ProcessFn processes, CommandFn command);
+    WebServer(int port, StatusFn status, ProcessFn processes, CommandFn command,
+              ProfileFn profile);
     ~WebServer();
 
     WebServer(const WebServer&) = delete;
@@ -139,6 +160,7 @@ private:
     StatusFn   status_;
     ProcessFn  processes_;
     CommandFn  command_;
+    ProfileFn  profile_;
 
     unsigned long long listenSock_ = (unsigned long long)~0ull;  // SOCKET, 避免头文件里引 winsock
     HANDLE     thread_ = nullptr;
