@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <algorithm>
@@ -68,6 +69,7 @@ void printUsage() {
         "  --hold-up <秒>          供电稳定多久回升 (默认 300)\n"
         "  --profiles <文件>       分游戏参数文件 (默认 profiles.ini)\n"
         "  --no-game-profiles      不加载分游戏参数\n"
+        "  --check-profiles        校验分游戏参数文件(未知键/非法值带行号)后退出\n"
         "  --apply-always          不等待游戏启动, 立即应用\n"
         "  --no-gpu / --no-cpu     关闭对应控制\n"
         "  --dry-run               只记录动作, 不修改系统\n"
@@ -208,6 +210,8 @@ PowerGuardApp::PowerGuardApp(int argc, char** argv) {
             profilePath_ = v;
         } else if (a == "--no-game-profiles") {
             gameProfilesEnabled = false;
+        } else if (a == "--check-profiles") {
+            checkProfiles_ = true;
         } else if (matchOpt(i, a, "step", v)) {
             profile_.stepW = parseInt(v, profile_.stepW);
         } else if (matchOpt(i, a, "hold-down", v)) {
@@ -246,7 +250,8 @@ void PowerGuardApp::startWebServer() {
         [this](const WebCommand& cmd) {
             std::lock_guard<std::mutex> lk(webMu_);
             if (webCommands_.size() < 32) webCommands_.push_back(cmd);
-        });
+        },
+        [this](const ProfileRequest& req) { return handleProfileRequest(req); });
 
     if (web_->start())
         LOG_INFO("web", "Web 控制台: http://127.0.0.1:%d (仅本机可访问)", webPort_);
@@ -275,8 +280,8 @@ void PowerGuardApp::processWebCommands() {
             case WebCommand::SetTarget:
                 target_ = cmd.target;
                 monitor_.setTarget(cmd.target);
-                profileGame_.clear();        // 换目标后重新匹配分游戏参数
-                activeGameProfile_.clear();
+                // 不在这里清 profileGame_/activeGameProfile_: 由下一次
+                // updateControl 对比新目标后统一重载(暂停时也会重载参数)。
                 tracker_.reset();
                 LOG_INFO("web", "监控目标已切换为 %s",
                          monitor_.configured() ? monitor_.targetDisplay().c_str() : "(无)");
@@ -298,6 +303,61 @@ void PowerGuardApp::processWebCommands() {
                 break;
         }
     }
+}
+
+// Web 线程直接调用: 只碰 profiles.ini (读写都用临时文件原子替换),
+// 不共享主线程的状态。保存成功后由热重载在 1~2 秒内自动套用。
+ProfileResponse PowerGuardApp::handleProfileRequest(const ProfileRequest& req) {
+    ProfileResponse r;
+    if (profilePath_.empty()) {
+        r.code = 400;
+        r.error = "分游戏参数已关闭 (--no-game-profiles)";
+        return r;
+    }
+
+    if (req.action == ProfileRequest::Get) {
+        std::string content, normalized, error;
+        bool found = false;
+        if (!readProfileSection(profilePath_, req.name, content, found, normalized, error)) {
+            r.code = 400;
+            r.name = normalized;
+            r.error = error;
+            return r;
+        }
+        r.ok = true;
+        r.found = found;
+        r.name = normalized;
+        r.content = content;
+        return r;
+    }
+
+    if (req.action == ProfileRequest::Save) {
+        std::string normalized, error;
+        if (!writeProfileSection(profilePath_, req.name, req.content, normalized, error)) {
+            r.code = 400;
+            r.name = normalized;
+            r.error = error;
+            return r;
+        }
+        LOG_INFO("web", "分游戏参数 [%s] 已保存: %s", normalized.c_str(),
+                 profilePath_.c_str());
+        r.ok = true;
+        r.found = true;
+        r.name = normalized;
+        return r;
+    }
+
+    std::string normalized, error;
+    if (!removeProfileSection(profilePath_, req.name, normalized, error)) {
+        r.code = 400;
+        r.name = normalized;
+        r.error = error;
+        return r;
+    }
+    LOG_INFO("web", "分游戏参数 [%s] 已删除", normalized.c_str());
+    r.ok = true;
+    r.name = normalized;
+    return r;
 }
 
 void PowerGuardApp::applyConfigChange(const ConfigChange& c) {
@@ -422,7 +482,8 @@ void PowerGuardApp::publishWebStatus(double c, double g, const BatterySample& ba
 }
 
 int PowerGuardApp::run() {
-    // 能力探测是独立工具: 不碰控制、不占单实例锁、不初始化日志文件
+    // 独立的只读工具: 不碰控制、不占单实例锁、不初始化日志文件
+    if (checkProfiles_) return runCheckProfiles();
     if (diagnose_) return runDiagnose(diagnoseValidate_);
 
     Logger::instance().init("logs", Level::Info);
@@ -503,6 +564,13 @@ int PowerGuardApp::run() {
             LOG_WARN("ctl", "发现上次异常退出留下的状态 (PID %lu), 启动时先恢复", st.pid);
             restoreFromSavedState();
         }
+    }
+
+    // 分游戏参数: 启动时先把文件问题(未知键/非法值)写进日志, 并记下 mtime
+    // 作为热重载基线; 之后每秒由 updateControl 检查文件是否被编辑。
+    if (profile_.enabled && !profilePath_.empty()) {
+        logProfileFileIssues();
+        initProfileWatch();
     }
 
     // 不监控进程 / 立即生效时, 先把 profiles.ini 的 [default] 段套上
@@ -686,12 +754,161 @@ void PowerGuardApp::setProfileForGame(const std::string& game) {
         std::string gpuText = profile_.gpuClockMhz > 0
             ? std::to_string(profile_.gpuClockMhz) + "MHz"
             : std::to_string(profile_.gpuLimitW) + "W";
-        LOG_INFO("ctl", "已加载分游戏参数 [%s]%s%s: GPU %s, CPU %d%%, 降档优先 %s",
+        LOG_INFO("ctl", "已加载分游戏参数 [%s]%s%s: GPU %s, CPU %d%%, 降档优先 %s%s%s",
                  used.c_str(), game.empty() ? "" : " 对应 ",
                  game.empty() ? "" : (game + ".exe").c_str(),
                  gpuText.c_str(), profile_.cpuMaxPct,
-                 profile_.preferAuto ? "自动" : (profile_.preferCpu ? "CPU" : "GPU"));
+                 profile_.preferAuto ? "自动" : (profile_.preferCpu ? "CPU" : "GPU"),
+                 profile_.controlGpu ? "" : " (GPU 不控制)",
+                 profile_.controlCpu ? "" : " (CPU 不控制)");
     }
+}
+
+void PowerGuardApp::logProfileFileIssues() {
+    if (profilePath_.empty()) return;
+
+    ProfileReport report;
+    if (!inspectGameProfile(profilePath_, report)) {
+        LOG_WARN("ctl", "分游戏参数文件打不开: %s (仅使用命令行参数)",
+                 profilePath_.c_str());
+        return;
+    }
+    if (report.warnings.empty()) {
+        LOG_DEBUG("ctl", "分游戏参数文件校验通过: %s (%d 个段)",
+                  profilePath_.c_str(), (int)report.sections.size());
+        return;
+    }
+
+    LOG_WARN("ctl", "分游戏参数文件有 %d 个问题, 相关键会被忽略: %s",
+             (int)report.warnings.size(), profilePath_.c_str());
+    for (const auto& w : report.warnings)
+        LOG_WARN("ctl", "  %s", w.c_str());
+    LOG_WARN("ctl", "  可运行 PowerGuard.exe --check-profiles 查看完整校验结果");
+}
+
+void PowerGuardApp::initProfileWatch() {
+    profileWriteTimeValid_ = false;
+    if (profilePath_.empty()) return;
+
+    std::error_code ec;
+    auto t = std::filesystem::last_write_time(std::filesystem::u8path(profilePath_), ec);
+    if (!ec) {
+        profileWriteTime_ = t;
+        profileWriteTimeValid_ = true;
+    }
+}
+
+void PowerGuardApp::reloadActiveProfile(bool targetRunning) {
+    const bool wasApplied = controlApplied_;
+    if (wasApplied) restoreControl();
+
+    std::string game;
+    if (targetRunning && monitor_.configured()) game = monitor_.matched();
+
+    setProfileForGame(game);
+    profileGame_ = game;
+    lastControlTick_ = 0;
+    deficitEnergyWh_ = 0;
+
+    // 暂停(网页点过"恢复")时只更新参数, 等用户再次点"立即应用"。
+    // 游戏刚退出且不是 apply-always 时不要再套用, 由 updateControl 的退出分支收尾。
+    const bool keepApplied = !monitor_.configured() || profile_.applyAlways || targetRunning;
+    const bool shouldApply = wasApplied ? keepApplied : profile_.applyAlways;
+    if (!controlPaused_ && shouldApply)
+        applyControl();
+
+    std::string section = activeGameProfile_.empty()
+        ? "(未命中段, 仅用命令行参数)"
+        : "[" + activeGameProfile_ + "]";
+    std::string target = game.empty() ? "" : (" 对应 " + game + ".exe");
+    LOG_INFO("ctl", "分游戏参数已重新加载: %s%s", section.c_str(), target.c_str());
+}
+
+void PowerGuardApp::reloadProfilesIfChanged(bool targetRunning) {
+    if (profilePath_.empty() || shutdownRequested_) return;
+
+    std::error_code ec;
+    auto t = std::filesystem::last_write_time(std::filesystem::u8path(profilePath_), ec);
+    const bool exists = !ec;
+
+    auto sameAsLoaded = [&]() {
+        if (exists != profileWriteTimeValid_) return false;
+        if (!exists) return true;            // 启动时就没有文件
+        return t == profileWriteTime_;
+    };
+
+    if (!profileChangePending_) {
+        if (sameAsLoaded()) return;
+        // 先记下, 下一拍再确认: 有些编辑器保存时是"删掉再改名",
+        // 立刻读取会看到一个短暂不存在的窗口。
+        profileChangePending_ = true;
+        profilePendingTime_ = t;
+        profilePendingExists_ = exists;
+        return;
+    }
+
+    // 等待确认期间文件又变了, 重新计时
+    if (exists != profilePendingExists_ || (exists && t != profilePendingTime_)) {
+        profilePendingTime_ = t;
+        profilePendingExists_ = exists;
+        return;
+    }
+
+    // 连续两拍一致, 认为写入已稳定
+    profileChangePending_ = false;
+    if (!exists) {
+        profileWriteTimeValid_ = false;
+        LOG_WARN("ctl", "分游戏参数文件已消失或不可读: %s, 回到命令行参数",
+                 profilePath_.c_str());
+        reloadActiveProfile(targetRunning);
+        return;
+    }
+
+    const bool wasMissing = !profileWriteTimeValid_;
+    profileWriteTime_ = t;
+    profileWriteTimeValid_ = true;
+    LOG_INFO("ctl", wasMissing ? "检测到新的分游戏参数文件: %s"
+                               : "分游戏参数文件已更新, 重新加载: %s",
+             profilePath_.c_str());
+
+    logProfileFileIssues();
+    reloadActiveProfile(targetRunning);
+}
+
+int PowerGuardApp::runCheckProfiles() {
+    if (profilePath_.empty()) {
+        fprintf(stderr, "[ERROR] --check-profiles 不能与 --no-game-profiles 同时使用\n");
+        return 1;
+    }
+
+    printf("分游戏参数校验: %s\n", profilePath_.c_str());
+    ProfileReport report;
+    if (!inspectGameProfile(profilePath_, report)) {
+        fprintf(stderr, "[ERROR] 无法打开文件 (检查路径/权限)\n");
+        return 1;
+    }
+
+    if (report.sections.empty()) {
+        printf("  没有找到任何 [section]。\n");
+    } else {
+        for (const auto& s : report.sections) {
+            printf("  [%s] 第 %d 行: 有效键 %d, 有问题 %d\n",
+                   s.name.empty() ? "(未命名)" : s.name.c_str(), s.line,
+                   s.validKeys, s.invalidKeys);
+        }
+    }
+
+    if (!report.warnings.empty()) {
+        printf("\n发现 %d 个问题:\n", (int)report.warnings.size());
+        for (const auto& w : report.warnings)
+            printf("  - %s\n", w.c_str());
+        printf("\n键名必须与 --help 中的参数一致 (去掉 --, 用 _ 连接); "
+               "段名 = 进程名, 不含 .exe。\n");
+        return 1;
+    }
+
+    printf("\nOK: 没有发现未知键或非法值。\n");
+    return 0;
 }
 
 void PowerGuardApp::inputLoop() {
@@ -1094,23 +1311,19 @@ void PowerGuardApp::restoreControl() {
 void PowerGuardApp::updateControl(bool targetRunning, const BatterySample& bat) {
     std::lock_guard<std::recursive_mutex> lk(controlMu_);
     if (!profile_.enabled) return;
-    if (controlPaused_) return;            // 网页上手动恢复后暂停, 直到再次应用
     if (shutdownRequested_) return;        // 正在关机/注销, 不要再把限制套回去
+    reloadProfilesIfChanged(targetRunning);  // 编辑 profiles.ini 后自动重新套用
 
-    // 游戏切换: 先恢复旧游戏, 换上新游戏的 profiles.ini 参数, 再应用
-    if (targetRunning && monitor_.configured()) {
-        const std::string& game = monitor_.matched();
-        if (game != profileGame_) {
-            bool wasApplied = controlApplied_;
-            if (wasApplied) restoreControl();
-            setProfileForGame(game);
-            profileGame_ = game;
-            lastControlTick_ = 0;
-            deficitEnergyWh_ = 0;
-            if (wasApplied || profile_.applyAlways) applyControl();
-            return;
-        }
+    // 目标状态变化(游戏启动/退出/换目标)时都要重算生效参数。
+    // 暂停只表示"不写系统", 不能连参数也停在上一局, 否则恢复控制时会套错段。
+    const std::string desiredGame =
+        (targetRunning && monitor_.configured()) ? monitor_.matched() : std::string();
+    if (desiredGame != profileGame_) {
+        reloadActiveProfile(targetRunning);   // 内部按暂停/applyAlways 决定是否应用
+        return;
     }
+
+    if (controlPaused_) return;            // 网页上手动恢复后暂停, 直到再次应用
 
     if (!controlApplied_) {
         lastControlTick_ = 0;

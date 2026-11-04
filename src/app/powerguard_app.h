@@ -6,6 +6,7 @@
 #pragma once
 
 #include <windows.h>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -41,6 +42,7 @@ private:
     void startWebServer();
     void stopWebServer();
     void processWebCommands();            // 主线程消费网页提交的操作
+    ProfileResponse handleProfileRequest(const ProfileRequest& req);  // Web 线程直接调用
     void applyConfigChange(const ConfigChange& c);
     void publishWebStatus(double cpuW, double gpuW, const BatterySample& bat,
                           bool targetRunning);
@@ -54,6 +56,11 @@ private:
     void setProfileForGame(const std::string& game);      // 应用 profiles.ini
     void resetProfileToBase();                            // 回到命令行/profile 默认值
     void resolvePercentClocks(ControlProfile& p);         // 百分比 -> 实际 MHz
+    void logProfileFileIssues();                          // 启动/重载时报告 INI 问题
+    void initProfileWatch();                              // 记录 profiles.ini 初始 mtime
+    void reloadProfilesIfChanged(bool targetRunning);     // 文件变化后热重载
+    void reloadActiveProfile(bool targetRunning);         // 恢复并重新套用当前段
+    int  runCheckProfiles();                              // --check-profiles
 
     GpuPower           gpu_;
     CpuPower           cpu_;
@@ -64,6 +71,12 @@ private:
     std::string        profilePath_;      // profiles.ini 路径, 空 = 不加载
     std::string        profileGame_;      // 已加载分游戏参数的进程名
     std::string        activeGameProfile_;// 命中段名, 供网页显示
+    std::filesystem::file_time_type profileWriteTime_{};
+    bool               profileWriteTimeValid_ = false;
+    bool               profileChangePending_ = false;   // 等下一拍确认写入稳定
+    std::filesystem::file_time_type profilePendingTime_{};
+    bool               profilePendingExists_ = false;
+    bool               checkProfiles_ = false;   // --check-profiles
     CsvLog             csv_;
     // 写入去抖: 绝对 8.0W 或 相对 5% 任一满足即写, 且最多 60s 补记一次
     PowerChangeTracker tracker_{8.0, 0.05, 60000};

@@ -58,6 +58,7 @@ std::string httpResponse(int code, const char* type, const std::string& body) {
                        : code == 403 ? "Forbidden"
                        : code == 404 ? "Not Found"
                        : code == 415 ? "Unsupported Media Type"
+                       : code == 500 ? "Internal Server Error"
                                      : "Bad Request";
     std::string r;
     r += "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\n";
@@ -255,6 +256,21 @@ std::string processesJson(const std::vector<ProcInfo>& v) {
     }
     o += ']';
     return o;
+}
+
+std::string profileResultJson(const ProfileResponse& p) {
+    std::string o = "{";
+    o += "\"ok\":" + std::string(p.ok ? "true" : "false");
+    o += ",\"found\":" + std::string(p.found ? "true" : "false");
+    o += ",\"name\":" + jsonEscape(p.name);
+    o += ",\"content\":" + jsonEscape(p.content);
+    o += ",\"error\":" + jsonEscape(p.error);
+    o += '}';
+    return o;
+}
+
+std::string errorJson(const std::string& message) {
+    return "{\"ok\":false,\"error\":" + jsonEscape(message) + "}";
 }
 
 // ============================================================
@@ -521,7 +537,23 @@ section.panel:nth-of-type(3){animation-delay:.20s}
 .toggle.warn.on .sw{background:var(--warn-fill)}
 .toggle.on .sw::after{transform:translateX(18px)}
 
-.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+.hint.ok{color:var(--ok)}
+.hint.err{color:var(--bad);white-space:pre-line}
+
+/* ---- 分游戏参数 ---- */
+.prof-bar{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.prof-name{flex:1 1 260px;min-width:0}
+.prof-editor{
+  display:block;width:100%;min-height:168px;margin-top:10px;padding:14px 16px;
+  resize:vertical;background:var(--field);border:1px solid var(--line);border-radius:18px;
+  color:var(--txt);outline:none;caret-color:var(--accent);
+  font:12.5px/1.75 ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace;
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+.prof-editor:hover{background:var(--field-hover)}
+.prof-editor:focus{border-color:var(--accent);box-shadow:var(--ring);background:var(--field)}
+.prof-editor::placeholder{color:var(--dim);opacity:.8}
 
 /* ---- 进程选择器 ---- */
 .panel-proc{position:relative;z-index:3}
@@ -849,6 +881,25 @@ footer{max-width:1060px;margin:0 auto;padding:14px 20px 30px;color:var(--dim);fo
       </div>
     </div>
   </section>
+
+  <section class="panel">
+    <div class="panel-head"><h3>分游戏参数</h3><span class="hint">保存后 1~2 秒自动重载生效</span></div>
+    <div class="prof-bar">
+      <div class="field prof-name">
+        <label for="f-prof-name">段名 = 进程名（.exe 可省略）</label>
+        <input id="f-prof-name" type="text" placeholder="例如 bg3_dx11" autocomplete="off" spellcheck="false">
+      </div>
+      <button type="button" onclick="useCurrentGame()">用当前目标</button>
+      <button type="button" onclick="loadProfile()">读取</button>
+    </div>
+    <textarea id="f-prof-content" class="prof-editor" spellcheck="false" aria-label="分游戏参数内容"
+      placeholder="gpu_clock = 900&#10;cpu_max = 89&#10;prefer = cpu"></textarea>
+    <div class="actions">
+      <button class="primary" type="button" onclick="saveProfile()">保存段</button>
+      <button class="danger" type="button" onclick="deleteProfile()">删除段</button>
+      <span class="hint" id="prof-status">每行一个 key = value，允许空行和注释</span>
+    </div>
+  </section>
 </main>
 <footer id="foot">--</footer>
 <div id="msg" role="status" aria-live="polite"></div>
@@ -866,6 +917,8 @@ var menuOpen = false;
 var procsLoading = false;
 var procsError = false;
 var pollTimer = null;
+var profLoadedFor = '';
+var profDirty = false;
 
 var ICON_SEARCH = '<svg class="empty-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>';
 
@@ -878,7 +931,7 @@ function esc(s){
 function setText(id, t){ var e = $(id); if (e) e.textContent = t; }
 function isEditing(){
   var a = document.activeElement;
-  return a && (a.tagName === 'INPUT' || a.tagName === 'SELECT');
+  return a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA');
 }
 
 /* ---- 主题: 深色 / 浅色, 首次跟随系统, 选择后记住 ---- */
@@ -1010,6 +1063,7 @@ function render(s){
   var ti = $('f-target');
   if (ti && !targetDirty && ti.value !== tgt) ti.value = tgt;
   if (changed && menuOpen) renderProcs();
+  if (changed) syncProfileName(tgt);
 
   var cfg = s.cfg;
   var sig = JSON.stringify(cfg) + (s.dry_run ? '1' : '0') + (s.apply_always ? '1' : '0');
@@ -1042,15 +1096,21 @@ function render(s){
   setText('foot', '端口 ' + s.web_port + ' · 已运行 ' + mins + ' 分钟 · 仅本机可访问');
 }
 
+/* 失败时也读回 JSON, 把服务端的校验说明(带行号)显示出来 */
+function parseJsonResponse(r){
+  return r.text().then(function(t){
+    var data = {};
+    try { data = t ? JSON.parse(t) : {}; } catch(e) {}
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    return data;
+  });
+}
 function post(url, body){
   return fetch(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body || {})
-  }).then(function(r){
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  });
+  }).then(parseJsonResponse);
 }
 function send(url, body, okMsg, onOk){
   post(url, body).then(function(r){
@@ -1087,6 +1147,93 @@ function saveCfg(){
   send('/api/config', body, '参数已保存；控制中会立即重新应用', function(){
     cfgSig = '';
   });
+}
+
+/* ---- 分游戏参数: 直接读写 profiles.ini 的某个段 ---- */
+function setProfStatus(t, kind){
+  var e = $('prof-status');
+  if (!e) return;
+  e.textContent = t || '';
+  e.className = 'hint' + (kind ? ' ' + kind : '');
+}
+function suggestProfileName(){
+  var t = targetName || '';
+  return t.replace(/\.exe$/i, '').toLowerCase();
+}
+function syncProfileName(tgt){
+  var n = (tgt || '').replace(/\.exe$/i, '').toLowerCase();
+  var el = $('f-prof-name');
+  if (!el) return;
+  if (!profDirty && (!el.value || el.value === profLoadedFor)) el.value = n;
+  if (profLoadedFor && n && profLoadedFor !== n && !profDirty)
+    setProfStatus('当前目标是 ' + n + '，可点“用当前目标”读取', '');
+}
+function useCurrentGame(){
+  var n = suggestProfileName();
+  if (!n) { setProfStatus('还没有设置监控目标', 'err'); msg('还没有监控目标', true); return; }
+  $('f-prof-name').value = n;
+  loadProfile();
+}
+function loadProfile(){
+  var name = $('f-prof-name').value.trim();
+  if (!name) { setProfStatus('请输入段名', 'err'); return; }
+  setProfStatus('读取中…');
+  fetch('/api/profile', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'get', name: name})
+  }).then(parseJsonResponse)
+    .then(function(r){
+      $('f-prof-name').value = r.name || name;
+      $('f-prof-content').value = r.content || '';
+      profLoadedFor = r.name || name;
+      profDirty = false;
+      setProfStatus(r.found ? ('已加载 [' + profLoadedFor + ']')
+                            : ('[' + profLoadedFor + '] 还不存在，保存时创建'),
+                    r.found ? 'ok' : '');
+    })
+    .catch(function(e){ setProfStatus(e.message || '读取失败', 'err'); });
+}
+function saveProfile(){
+  var name = $('f-prof-name').value.trim();
+  if (!name) { setProfStatus('请输入段名', 'err'); return; }
+  var content = $('f-prof-content').value;
+  setProfStatus('保存中…');
+  fetch('/api/profile', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'save', name: name, content: content})
+  }).then(parseJsonResponse)
+    .then(function(r){
+      $('f-prof-name').value = r.name || name;
+      profLoadedFor = r.name || name;
+      profDirty = false;
+      setProfStatus('已保存 [' + profLoadedFor + ']，1~2 秒内自动生效', 'ok');
+      msg('分游戏参数已保存');
+    })
+    .catch(function(e){
+      setProfStatus(e.message || '保存失败', 'err');
+      msg('保存失败，请检查段内容', true);
+    });
+}
+function deleteProfile(){
+  var name = $('f-prof-name').value.trim();
+  if (!name) { setProfStatus('请输入段名', 'err'); return; }
+  if (!window.confirm('删除 [' + name + '] 段？此操作不可撤销。')) return;
+  fetch('/api/profile', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'remove', name: name})
+  }).then(parseJsonResponse)
+    .then(function(r){
+      $('f-prof-name').value = r.name || name;
+      $('f-prof-content').value = '';
+      profLoadedFor = '';
+      profDirty = false;
+      setProfStatus('已删除 [' + (r.name || name) + ']', 'ok');
+      msg('已删除分游戏参数段');
+    })
+    .catch(function(e){ setProfStatus(e.message || '删除失败', 'err'); });
 }
 
 /* ---- 进程选择器 ---- */
@@ -1347,6 +1494,23 @@ function onFilterKey(e){
   });
 })();
 
+(function attachProfileUi(){
+  var name = $('f-prof-name');
+  if (name) name.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); loadProfile(); }
+  });
+  var content = $('f-prof-content');
+  if (content) {
+    content.addEventListener('input', function(){ profDirty = true; });
+    content.addEventListener('keydown', function(e){
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        saveProfile();
+      }
+    });
+  }
+})();
+
 /* 鼠标光晕: 只在支持悬停的设备上跟随; 降低动态效果时保持静止。 */
 (function attachBgSpot(){
   var reduce = window.matchMedia &&
@@ -1396,9 +1560,11 @@ startPolling();
 // WebServer
 // ============================================================
 
-WebServer::WebServer(int port, StatusFn status, ProcessFn processes, CommandFn command)
+WebServer::WebServer(int port, StatusFn status, ProcessFn processes, CommandFn command,
+                     ProfileFn profile)
     : port_(port), status_(std::move(status)),
-      processes_(std::move(processes)), command_(std::move(command)) {}
+      processes_(std::move(processes)), command_(std::move(command)),
+      profile_(std::move(profile)) {}
 
 WebServer::~WebServer() { stop(); }
 
@@ -1628,6 +1794,40 @@ void WebServer::route(const std::string& method, const std::string& path,
             cmd.kind = WebCommand::Restore;
             if (command_) command_(cmd);
             out = httpResponse(200, "application/json", okJson());
+            return;
+        }
+        if (path == "/api/profile") {
+            std::string action;
+            if (!jsonString(body, "action", action)) {
+                out = httpResponse(400, "application/json",
+                                   errorJson("缺少 action (get/save/remove)"));
+                return;
+            }
+            action = lowerCopy(action);
+
+            ProfileRequest req;
+            if (action == "get")         req.action = ProfileRequest::Get;
+            else if (action == "save")   req.action = ProfileRequest::Save;
+            else if (action == "remove") req.action = ProfileRequest::Remove;
+            else {
+                out = httpResponse(400, "application/json",
+                                   errorJson("action 必须是 get/save/remove"));
+                return;
+            }
+
+            if (!jsonString(body, "name", req.name) || req.name.empty()) {
+                out = httpResponse(400, "application/json", errorJson("缺少段名"));
+                return;
+            }
+            if (req.action == ProfileRequest::Save &&
+                !jsonString(body, "content", req.content)) {
+                out = httpResponse(400, "application/json", errorJson("缺少 content"));
+                return;
+            }
+
+            ProfileResponse pr = profile_ ? profile_(req) : ProfileResponse{};
+            if (pr.code == 0) pr.code = 200;
+            out = httpResponse(pr.code, "application/json", profileResultJson(pr));
             return;
         }
         out = httpResponse(404, "text/plain; charset=utf-8", "not found");
